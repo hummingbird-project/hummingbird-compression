@@ -84,6 +84,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
             } else {
                 context.write(data, promise: nil)
             }
+            self.state = .body(compressor)
 
         case (.end, .head(let head)):
             context.write(wrapOutboundOut(.head(head)), promise: nil)
@@ -93,7 +94,10 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
         case (.end, .body(let compressor)):
             do {
-                try compressor?.finishStream()
+                if let compressor = compressor {
+                    finalizeStream(context: context, compressor: compressor, promise: nil)
+                    try compressor.finishStream()
+                }
             } catch {
                 pendingPromise?.fail(error)
             }
@@ -110,7 +114,17 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
     private func writeBuffer(context: ChannelHandlerContext, part: IOData, compressor: NIOCompressor, promise: EventLoopPromise<Void>?) {
         guard case .byteBuffer(var buffer) = part else { fatalError("Cannot currently compress file regions") }
         do {
-            try buffer.compressStream(with: compressor, flush: .finish) { buffer in
+            try buffer.compressStream(with: compressor, flush: .sync) { buffer in
+                context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+            }
+        } catch {
+            promise?.fail(error)
+        }
+    }
+
+    private func finalizeStream(context: ChannelHandlerContext, compressor: NIOCompressor, promise: EventLoopPromise<Void>?) {
+        do {
+            try compressor.finishWindowedStream() { buffer in
                 context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
             }
         } catch {
