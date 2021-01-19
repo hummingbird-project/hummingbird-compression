@@ -1,4 +1,5 @@
 import CompressNIO
+import HummingBird
 import NIO
 import NIOHTTP1
 
@@ -50,16 +51,24 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
         case (.body(let part), .head(var head)):
             // if compression is accepted
             if let compression = self.compressionAlgorithm(from: acceptQueue.removeFirst()) {
-                // edit header, removing content-length and adding content-encoding
-                head.headers.replaceOrAdd(name: "content-encoding", value: compression.name)
-                head.headers.remove(name: "content-length")
-                context.write(wrapOutboundOut(.head(head)), promise: nil)
                 // start compression
                 let compressor = compression.compressor
                 compressor.window = compressorWindow
-                try! compressor.startStream()
-                writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
-                self.state = .body(compressor)
+                do {
+                    try compressor.startStream()
+
+                    // edit header, removing content-length and adding content-encoding
+                    head.headers.replaceOrAdd(name: "content-encoding", value: compression.name)
+                    head.headers.remove(name: "content-length")
+                    context.write(wrapOutboundOut(.head(head)), promise: nil)
+                    writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
+                    self.state = .body(compressor)
+                } catch {
+                    // if compressor failed to start stream then output uncompressed data
+                    context.write(wrapOutboundOut(.head(head)), promise: nil)
+                    context.write(data, promise: nil)
+                    self.state = .body(nil)
+                }
             } else {
                 context.write(wrapOutboundOut(.head(head)), promise: nil)
                 context.write(data, promise: nil)
