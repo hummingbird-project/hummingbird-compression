@@ -3,6 +3,8 @@ import HummingBird
 import NIO
 import NIOHTTP1
 
+/// HTTP Response compression channel handler. Compresses HTTP body when accept-encoding header in Request indicates
+/// the client will accept compressed data
 class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler {
     public typealias InboundIn = HTTPServerRequestPart
     public typealias OutboundIn = HTTPServerResponsePart
@@ -28,6 +30,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let part = self.unwrapInboundIn(data)
         if case .head(let head) = part {
+            // store accept-encoding header for when we are writing our response
             acceptQueue.append(head.headers[canonicalForm: "accept-encoding"])
         }
         context.fireChannelRead(data)

@@ -54,7 +54,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let testBuffer = randomBuffer(size: 261335)
         let app = Application()
         app.httpServer
-            .addRequestDecompression()
+            .addRequestDecompression(limit: .none)
         app.router.put("/echo") { request -> Response in
             let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -84,7 +84,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let testBuffer = randomBuffer(size: 261335)
         let app = Application()
         app.httpServer
-            .addRequestDecompression()
+            .addRequestDecompression(limit: .none)
             .addResponseCompression()
         app.router.put("/echo") { request -> Response in
             let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
@@ -106,5 +106,74 @@ class HummingBirdCompressionTests: XCTestCase {
             XCTAssertEqual(testBuffer, response.body)
         }
         XCTAssertNoThrow(try response.wait())
+    }
+
+    func testDecompressSizeLimit() throws {
+        let testBuffer = randomBuffer(size: 150000)
+        let app = Application()
+        app.httpServer
+            .addRequestDecompression(limit: .size(50000))
+            .addResponseCompression()
+        app.router.put("/echo") { request -> Response in
+            let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+            return .init(status: .ok, headers: [:], body: body)
+        }
+        app.start()
+        defer { app.stop(); app.wait() }
+
+        var testBuffer2 = testBuffer
+        let compressedBuffer = try testBuffer2.compress(with: .gzip)
+
+        let client = HTTPClient(eventLoopGroupProvider: .shared(app.eventLoopGroup))
+        defer { XCTAssertNoThrow(try client.syncShutdown()) }
+
+        let request = try HTTPClient.Request(
+            url: "http://localhost:\(app.configuration.port)/echo",
+            method: .PUT,
+            headers: ["content-encoding": "gzip"],
+            body: .byteBuffer(compressedBuffer)
+        )
+        let response =  client.execute(request: request).flatMapThrowing { response in
+            XCTAssertEqual(response.status, .payloadTooLarge)
+        }
+        XCTAssertNoThrow(try response.wait())
+
+    }
+
+    func testDecompressRatioLimit() throws {
+        // create buffer that compresses down very small
+        var testBuffer = ByteBufferAllocator().buffer(capacity: 65536)
+        for i in 0..<65536 {
+            testBuffer.writeInteger(UInt8(i & 0xff))
+        }
+
+        let app = Application()
+        app.httpServer
+            .addRequestDecompression(limit: .ratio(3))
+            .addResponseCompression()
+        app.router.put("/echo") { request -> Response in
+            let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+            return .init(status: .ok, headers: [:], body: body)
+        }
+        app.start()
+        defer { app.stop(); app.wait() }
+
+        var testBuffer2 = testBuffer
+        let compressedBuffer = try testBuffer2.compress(with: .gzip)
+
+        let client = HTTPClient(eventLoopGroupProvider: .shared(app.eventLoopGroup))
+        defer { XCTAssertNoThrow(try client.syncShutdown()) }
+
+        let request = try HTTPClient.Request(
+            url: "http://localhost:\(app.configuration.port)/echo",
+            method: .PUT,
+            headers: ["content-encoding": "gzip"],
+            body: .byteBuffer(compressedBuffer)
+        )
+        let response =  client.execute(request: request).flatMapThrowing { response in
+            XCTAssertEqual(response.status, .payloadTooLarge)
+        }
+        XCTAssertNoThrow(try response.wait())
+
     }
 }
