@@ -1,5 +1,5 @@
 import CompressNIO
-import HummingBird
+import Hummingbird
 import NIO
 import NIOHTTP1
 

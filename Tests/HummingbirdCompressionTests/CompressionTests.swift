@@ -1,6 +1,6 @@
 import AsyncHTTPClient
-import HummingBird
-import HummingBirdCompression
+import Hummingbird
+import HummingbirdCompression
 import XCTest
 
 class HummingBirdCompressionTests: XCTestCase {
@@ -44,7 +44,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let client = HTTPClient(eventLoopGroupProvider: .shared(app.eventLoopGroup), configuration: .init(decompression: .enabled(limit: .none)))
         defer { XCTAssertNoThrow(try client.syncShutdown()) }
 
-        let response =  client.put(url: "http://localhost:\(app.configuration.port)/echo", body: .byteBuffer(testBuffer)).flatMapThrowing { response in
+        let response =  client.put(url: "http://localhost:\(app.configuration.address.port!)/echo", body: .byteBuffer(testBuffer)).flatMapThrowing { response in
             XCTAssertEqual(testBuffer, response.body)
         }
         XCTAssertNoThrow(try response.wait())
@@ -69,7 +69,7 @@ class HummingBirdCompressionTests: XCTestCase {
         defer { XCTAssertNoThrow(try client.syncShutdown()) }
 
         let request = try HTTPClient.Request(
-            url: "http://localhost:\(app.configuration.port)/echo",
+            url: "http://localhost:\(app.configuration.address.port!)/echo",
             method: .PUT,
             headers: ["content-encoding": "gzip"],
             body: .byteBuffer(compressedBuffer)
@@ -97,7 +97,7 @@ class HummingBirdCompressionTests: XCTestCase {
         defer { XCTAssertNoThrow(try client.syncShutdown()) }
 
         let request = try HTTPClient.Request(
-            url: "http://localhost:\(app.configuration.port)/echo",
+            url: "http://localhost:\(app.configuration.address.port!)/echo",
             method: .PUT,
             headers: [:],
             body: .byteBuffer(testBuffer)
@@ -128,7 +128,7 @@ class HummingBirdCompressionTests: XCTestCase {
         defer { XCTAssertNoThrow(try client.syncShutdown()) }
 
         let request = try HTTPClient.Request(
-            url: "http://localhost:\(app.configuration.port)/echo",
+            url: "http://localhost:\(app.configuration.address.port!)/echo",
             method: .PUT,
             headers: ["content-encoding": "gzip"],
             body: .byteBuffer(compressedBuffer)
@@ -165,7 +165,7 @@ class HummingBirdCompressionTests: XCTestCase {
         defer { XCTAssertNoThrow(try client.syncShutdown()) }
 
         let request = try HTTPClient.Request(
-            url: "http://localhost:\(app.configuration.port)/echo",
+            url: "http://localhost:\(app.configuration.address.port!)/echo",
             method: .PUT,
             headers: ["content-encoding": "gzip"],
             body: .byteBuffer(compressedBuffer)

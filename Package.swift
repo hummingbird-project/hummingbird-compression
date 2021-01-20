@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "hummingbird-compression",
     products: [
-        .library(name: "HummingBirdCompression", targets: ["HummingBirdCompression"]),
+        .library(name: "HummingbirdCompression", targets: ["HummingbirdCompression"]),
     ],
     dependencies: [
         .package(url: "https://github.com/adam-fowler/hummingbird.git", .branch("main")),
@@ -15,14 +15,14 @@ let package = Package(
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.2.0"),
     ],
     targets: [
-        .target(name: "HummingBirdCompression", dependencies: [
-            .product(name: "HummingBird", package: "hummingbird"),
+        .target(name: "HummingbirdCompression", dependencies: [
+            .product(name: "Hummingbird", package: "hummingbird"),
             .product(name: "NIO", package: "swift-nio"),
             .product(name: "NIOHTTP1", package: "swift-nio"),
             .product(name: "CompressNIO", package: "compress-nio"),
         ]),
-        .testTarget(name: "HummingBirdCompressionTests", dependencies: [
-            .byName(name: "HummingBirdCompression"),
+        .testTarget(name: "HummingbirdCompressionTests", dependencies: [
+            .byName(name: "HummingbirdCompression"),
             .product(name: "AsyncHTTPClient", package: "async-http-client"),
         ]),
     ]

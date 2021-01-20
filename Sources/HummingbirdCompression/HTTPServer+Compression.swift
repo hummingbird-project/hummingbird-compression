@@ -1,4 +1,4 @@
-import HummingBird
+import Hummingbird
 
 extension HTTPServer {
     /// Add Channel Handler for decompressing request that have Content-Encoding header set to gzip or deflate
