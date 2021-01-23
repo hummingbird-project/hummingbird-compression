@@ -12,7 +12,6 @@ let package = Package(
         .package(url: "https://github.com/adam-fowler/hummingbird.git", .branch("main")),
         .package(url: "https://github.com/adam-fowler/compress-nio.git", from: "0.4.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.20.0"),
-        .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.2.0"),
     ],
     targets: [
         .target(name: "HummingbirdCompression", dependencies: [
@@ -23,7 +22,7 @@ let package = Package(
         ]),
         .testTarget(name: "HummingbirdCompressionTests", dependencies: [
             .byName(name: "HummingbirdCompression"),
-            .product(name: "AsyncHTTPClient", package: "async-http-client"),
+            .product(name: "HummingbirdXCT", package: "hummingbird"),
         ]),
     ]
 )

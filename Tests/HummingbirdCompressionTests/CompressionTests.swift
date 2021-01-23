@@ -1,26 +1,12 @@
 import AsyncHTTPClient
+import CompressNIO
 import Hummingbird
-import HummingbirdCompression
+@testable import HummingbirdCompression
+import HummingbirdXCT
 import XCTest
 
 class HummingBirdCompressionTests: XCTestCase {
     struct Error: Swift.Error {}
-
-    public class VerifyBufferCompressedHandler: ChannelOutboundHandler {
-        public typealias OutboundIn = HTTPServerResponsePart
-
-        let size: Int
-
-        init(size: Int) {
-            self.size = size
-        }
-        public func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
-            if case .body(let bytebuffer) = unwrapOutboundIn(data) {
-                XCTAssertNotEqual(size, bytebuffer.readableBytes)
-            }
-            context.write(data, promise: promise)
-        }
-    }
 
     func randomBuffer(size: Int) -> ByteBuffer {
         var data = [UInt8](repeating: 0, count: size)
@@ -29,151 +15,94 @@ class HummingBirdCompressionTests: XCTestCase {
     }
 
     func testCompressResponse() {
-        let testBuffer = randomBuffer(size: 261335)
-        let app = Application()
-        app.httpServer
-            .addChildChannelHandler(VerifyBufferCompressedHandler(size: testBuffer.readableBytes), position: .afterHTTP)
-            .addResponseCompression()
-        app.router.put("/echo") { request -> Response in
-            let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+        let app = HBApplication(.testing)
+        app.router.get("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.start()
-        defer { app.stop(); app.wait() }
+        app.XCTAddChannelHandler(HTTPResponseCompressHandler())
+        app.XCTStart()
+        defer { app.XCTStop() }
 
-        let client = HTTPClient(eventLoopGroupProvider: .shared(app.eventLoopGroup), configuration: .init(decompression: .enabled(limit: .none)))
-        defer { XCTAssertNoThrow(try client.syncShutdown()) }
-
-        let response =  client.put(url: "http://localhost:\(app.configuration.address.port!)/echo", body: .byteBuffer(testBuffer)).flatMapThrowing { response in
-            XCTAssertEqual(testBuffer, response.body)
-        }
-        XCTAssertNoThrow(try response.wait())
+        let testBuffer = randomBuffer(size: 261335)
+        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: testBuffer) { response in
+            var body = response.body
+            let uncompressed = try? body.decompress(with: .gzip)
+            XCTAssertEqual(uncompressed, testBuffer)
+        })
     }
 
     func testDecompressRequest() throws {
-        let testBuffer = randomBuffer(size: 261335)
-        let app = Application()
-        app.httpServer
-            .addRequestDecompression(limit: .none)
-        app.router.put("/echo") { request -> Response in
-            let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+        let app = HBApplication(.testing)
+        app.router.get("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.start()
-        defer { app.stop(); app.wait() }
+        app.XCTAddChannelHandler(HTTPRequestDecompressHandler(limit: .none))
+        app.XCTStart()
+        defer { app.XCTStop() }
 
-        var testBuffer2 = testBuffer
-        let compressedBuffer = try testBuffer2.compress(with: .gzip)
-
-        let client = HTTPClient(eventLoopGroupProvider: .shared(app.eventLoopGroup), configuration: .init(decompression: .enabled(limit: .none)))
-        defer { XCTAssertNoThrow(try client.syncShutdown()) }
-
-        let request = try HTTPClient.Request(
-            url: "http://localhost:\(app.configuration.address.port!)/echo",
-            method: .PUT,
-            headers: ["content-encoding": "gzip"],
-            body: .byteBuffer(compressedBuffer)
-        )
-        let response =  client.execute(request: request).flatMapThrowing { response in
-            XCTAssertEqual(testBuffer, response.body)
-        }
-        XCTAssertNoThrow(try response.wait())
+        let testBuffer = randomBuffer(size: 261335)
+        var testBufferCopy = testBuffer
+        let compressedBuffer = try testBufferCopy.compress(with: .gzip)
+        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
+            XCTAssertEqual(response.body, testBuffer)
+        })
     }
 
     func testNoCompression() throws {
-        let testBuffer = randomBuffer(size: 261335)
-        let app = Application()
-        app.httpServer
-            .addRequestDecompression(limit: .none)
-            .addResponseCompression()
-        app.router.put("/echo") { request -> Response in
-            let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+        let app = HBApplication(.testing)
+        app.router.get("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.start()
-        defer { app.stop(); app.wait() }
+        app.XCTAddChannelHandler(HTTPRequestDecompressHandler(limit: .none))
+        app.XCTStart()
+        defer { app.XCTStop() }
 
-        let client = HTTPClient(eventLoopGroupProvider: .shared(app.eventLoopGroup))
-        defer { XCTAssertNoThrow(try client.syncShutdown()) }
-
-        let request = try HTTPClient.Request(
-            url: "http://localhost:\(app.configuration.address.port!)/echo",
-            method: .PUT,
-            headers: [:],
-            body: .byteBuffer(testBuffer)
-        )
-        let response =  client.execute(request: request).flatMapThrowing { response in
-            XCTAssertEqual(testBuffer, response.body)
-        }
-        XCTAssertNoThrow(try response.wait())
+        let testBuffer = randomBuffer(size: 261335)
+        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, body: testBuffer) { response in
+            XCTAssertEqual(response.body, testBuffer)
+        })
     }
 
     func testDecompressSizeLimit() throws {
-        let testBuffer = randomBuffer(size: 150000)
-        let app = Application()
-        app.httpServer
-            .addRequestDecompression(limit: .size(50000))
-            .addResponseCompression()
-        app.router.put("/echo") { request -> Response in
-            let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+        let app = HBApplication(.testing)
+        app.router.get("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.start()
-        defer { app.stop(); app.wait() }
+        app.XCTAddChannelHandler(HTTPRequestDecompressHandler(limit: .size(50000)))
+        app.XCTStart()
+        defer { app.XCTStop() }
 
-        var testBuffer2 = testBuffer
-        let compressedBuffer = try testBuffer2.compress(with: .gzip)
-
-        let client = HTTPClient(eventLoopGroupProvider: .shared(app.eventLoopGroup))
-        defer { XCTAssertNoThrow(try client.syncShutdown()) }
-
-        let request = try HTTPClient.Request(
-            url: "http://localhost:\(app.configuration.address.port!)/echo",
-            method: .PUT,
-            headers: ["content-encoding": "gzip"],
-            body: .byteBuffer(compressedBuffer)
-        )
-        let response =  client.execute(request: request).flatMapThrowing { response in
+        let testBuffer = randomBuffer(size: 150000)
+        var testBufferCopy = testBuffer
+        let compressedBuffer = try testBufferCopy.compress(with: .gzip)
+        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.status, .payloadTooLarge)
-        }
-        XCTAssertNoThrow(try response.wait())
-
+        })
     }
 
     func testDecompressRatioLimit() throws {
+        let app = HBApplication(.testing)
+        app.router.get("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+            return .init(status: .ok, headers: [:], body: body)
+        }
+        app.XCTAddChannelHandler(HTTPRequestDecompressHandler(limit: .ratio(3)))
+        app.XCTStart()
+        defer { app.XCTStop() }
+
         // create buffer that compresses down very small
         var testBuffer = ByteBufferAllocator().buffer(capacity: 65536)
         for i in 0..<65536 {
             testBuffer.writeInteger(UInt8(i & 0xff))
         }
-
-        let app = Application()
-        app.httpServer
-            .addRequestDecompression(limit: .ratio(3))
-            .addResponseCompression()
-        app.router.put("/echo") { request -> Response in
-            let body: ResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
-            return .init(status: .ok, headers: [:], body: body)
-        }
-        app.start()
-        defer { app.stop(); app.wait() }
-
-        var testBuffer2 = testBuffer
-        let compressedBuffer = try testBuffer2.compress(with: .gzip)
-
-        let client = HTTPClient(eventLoopGroupProvider: .shared(app.eventLoopGroup))
-        defer { XCTAssertNoThrow(try client.syncShutdown()) }
-
-        let request = try HTTPClient.Request(
-            url: "http://localhost:\(app.configuration.address.port!)/echo",
-            method: .PUT,
-            headers: ["content-encoding": "gzip"],
-            body: .byteBuffer(compressedBuffer)
-        )
-        let response =  client.execute(request: request).flatMapThrowing { response in
+        var testBufferCopy = testBuffer
+        let compressedBuffer = try testBufferCopy.compress(with: .gzip)
+        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.status, .payloadTooLarge)
-        }
-        XCTAssertNoThrow(try response.wait())
-
+        })
     }
 }

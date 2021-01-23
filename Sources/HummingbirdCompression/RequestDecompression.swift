@@ -68,7 +68,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                 do {
                     try decompressor.startStream()
                 } catch {
-                    context.fireErrorCaught(HTTPError(.internalServerError))
+                    context.fireErrorCaught(HBHTTPError(.internalServerError))
                 }
                 self.state = .decompressingBody(decompressor)
             } else {
@@ -86,7 +86,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
             do {
                 try decompressor.finishStream()
             } catch {
-                context.fireErrorCaught(HTTPError(.internalServerError))
+                context.fireErrorCaught(HBHTTPError(.internalServerError))
             }
             context.fireChannelRead(data)
             self.state = .idle
@@ -110,10 +110,10 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                 context.fireChannelRead(self.wrapInboundOut(.body(buffer)))
             }
             if self.limit.hasExceeded(compressed: self.compressedSize, decompressed: self.decompressedSize) {
-                context.fireErrorCaught(HTTPError(.payloadTooLarge))
+                context.fireErrorCaught(HBHTTPError(.payloadTooLarge))
             }
         } catch {
-            context.fireErrorCaught(HTTPError(.badRequest))
+            context.fireErrorCaught(HBHTTPError(.badRequest))
         }
     }
 
