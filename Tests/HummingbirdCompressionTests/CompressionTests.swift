@@ -1,4 +1,3 @@
-import AsyncHTTPClient
 import CompressNIO
 import Hummingbird
 @testable import HummingbirdCompression
