@@ -19,7 +19,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.server.addChannelHandler(HTTPResponseCompressHandler())
+        app.addResponseCompression()
         app.XCTStart()
         defer { app.XCTStop() }
 
@@ -37,7 +37,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.server.addChannelHandler(HTTPRequestDecompressHandler(limit: .none))
+        app.addRequestDecompression(limit: .none)
         app.XCTStart()
         defer { app.XCTStop() }
 
@@ -55,7 +55,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.server.addChannelHandler(HTTPRequestDecompressHandler(limit: .none))
+        app.addRequestDecompression(limit: .none)
         app.XCTStart()
         defer { app.XCTStop() }
 
@@ -71,7 +71,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.server.addChannelHandler(HTTPRequestDecompressHandler(limit: .size(50000)))
+        app.addRequestDecompression(limit: .size(50000))
         app.XCTStart()
         defer { app.XCTStop() }
 
@@ -89,7 +89,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.server.addChannelHandler(HTTPRequestDecompressHandler(limit: .ratio(3)))
+        app.addRequestDecompression(limit: .ratio(3))
         app.XCTStart()
         defer { app.XCTStop() }
 
