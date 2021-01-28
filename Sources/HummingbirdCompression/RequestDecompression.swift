@@ -10,6 +10,7 @@ public struct HTTPDecompressionLimit {
         case size(Int)
         case ratio(Double)
     }
+
     private let limit: Limit
     private init(_ limit: Limit) {
         self.limit = limit
@@ -20,7 +21,7 @@ public struct HTTPDecompressionLimit {
     public static func ratio(_ value: Double) -> Self { .init(.ratio(value)) }
 
     func hasExceeded(compressed: Int, decompressed: Int) -> Bool {
-        switch limit {
+        switch self.limit {
         case .size(let size):
             return decompressed > size
         case .ratio(let ratio):
@@ -48,7 +49,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
     var compressedSize: Int
     var decompressedSize: Int
 
-    init(limit: HTTPDecompressionLimit, windowSize: Int = 32*1024) {
+    init(limit: HTTPDecompressionLimit, windowSize: Int = 32 * 1024) {
         self.state = .idle
         self.limit = limit
         self.decompressorWindow = ByteBufferAllocator().buffer(capacity: windowSize)
@@ -77,7 +78,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
             context.fireChannelRead(self.wrapInboundOut(.head(head)))
 
         case (.body(let part), .decompressingBody(let decompressor)):
-            writeBuffer(context: context, buffer: part, decompressor: decompressor)
+            self.writeBuffer(context: context, buffer: part, decompressor: decompressor)
 
         case (.body, .receivingBody):
             context.fireChannelRead(data)

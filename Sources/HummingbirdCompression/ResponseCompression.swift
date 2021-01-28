@@ -21,7 +21,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
     var state: State
     var pendingPromise: EventLoopPromise<Void>?
 
-    init(windowSize: Int = 32*1024) {
+    init(windowSize: Int = 32 * 1024) {
         self.state = .idle
         self.acceptQueue = .init(initialCapacity: 4)
         self.compressorWindow = ByteBufferAllocator().buffer(capacity: windowSize)
@@ -43,7 +43,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
             if let pendingPromise = self.pendingPromise {
                 pendingPromise.futureResult.cascade(to: promise)
             } else {
-                pendingPromise = promise
+                self.pendingPromise = promise
             }
         }
 
@@ -56,7 +56,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
             if let compression = self.compressionAlgorithm(from: acceptQueue.removeFirst()) {
                 // start compression
                 let compressor = compression.compressor
-                compressor.window = compressorWindow
+                compressor.window = self.compressorWindow
                 do {
                     try compressor.startStream()
 
@@ -64,7 +64,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
                     head.headers.replaceOrAdd(name: "content-encoding", value: compression.name)
                     head.headers.remove(name: "content-length")
                     context.write(wrapOutboundOut(.head(head)), promise: nil)
-                    writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
+                    self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
                     self.state = .body(compressor)
                 } catch {
                     // if compressor failed to start stream then output uncompressed data
@@ -80,7 +80,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
         case (.body(let part), .body(let compressor)):
             if let compressor = compressor {
-                writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
+                self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
             } else {
                 context.write(data, promise: nil)
             }
@@ -88,20 +88,20 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
         case (.end, .head(let head)):
             context.write(wrapOutboundOut(.head(head)), promise: nil)
-            context.write(data, promise: pendingPromise)
+            context.write(data, promise: self.pendingPromise)
             self.pendingPromise = nil
             self.state = .idle
 
         case (.end, .body(let compressor)):
             do {
                 if let compressor = compressor {
-                    finalizeStream(context: context, compressor: compressor, promise: nil)
+                    self.finalizeStream(context: context, compressor: compressor, promise: nil)
                     try compressor.finishStream()
                 }
             } catch {
-                pendingPromise?.fail(error)
+                self.pendingPromise?.fail(error)
             }
-            context.write(data, promise: pendingPromise)
+            context.write(data, promise: self.pendingPromise)
             self.pendingPromise = nil
             self.state = .idle
 
@@ -124,7 +124,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
     private func finalizeStream(context: ChannelHandlerContext, compressor: NIOCompressor, promise: EventLoopPromise<Void>?) {
         do {
-            try compressor.finishWindowedStream() { buffer in
+            try compressor.finishWindowedStream { buffer in
                 context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
             }
         } catch {
@@ -156,11 +156,11 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
         for acceptHeader in acceptHeaders {
             if acceptHeader.hasPrefix("gzip") || acceptHeader.hasPrefix("x-gzip") {
-                gzipQValue = qValueFromHeader(acceptHeader)
+                gzipQValue = self.qValueFromHeader(acceptHeader)
             } else if acceptHeader.hasPrefix("deflate") {
-                deflateQValue = qValueFromHeader(acceptHeader)
+                deflateQValue = self.qValueFromHeader(acceptHeader)
             } else if acceptHeader.hasPrefix("*") {
-                anyQValue = qValueFromHeader(acceptHeader)
+                anyQValue = self.qValueFromHeader(acceptHeader)
             }
         }
 

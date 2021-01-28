@@ -23,7 +23,7 @@ class HummingBirdCompressionTests: XCTestCase {
         app.XCTStart()
         defer { app.XCTStop() }
 
-        let testBuffer = randomBuffer(size: 261335)
+        let testBuffer = self.randomBuffer(size: 261_335)
         app.XCTExecute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: testBuffer) { response in
             var body = response.body
             let uncompressed = try body?.decompress(with: .gzip)
@@ -41,7 +41,7 @@ class HummingBirdCompressionTests: XCTestCase {
         app.XCTStart()
         defer { app.XCTStop() }
 
-        let testBuffer = randomBuffer(size: 261335)
+        let testBuffer = self.randomBuffer(size: 261_335)
         var testBufferCopy = testBuffer
         let compressedBuffer = try testBufferCopy.compress(with: .gzip)
         app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
@@ -59,7 +59,7 @@ class HummingBirdCompressionTests: XCTestCase {
         app.XCTStart()
         defer { app.XCTStop() }
 
-        let testBuffer = randomBuffer(size: 261335)
+        let testBuffer = self.randomBuffer(size: 261_335)
         app.XCTExecute(uri: "/echo", method: .GET, body: testBuffer) { response in
             XCTAssertEqual(response.body, testBuffer)
         }
@@ -75,7 +75,7 @@ class HummingBirdCompressionTests: XCTestCase {
         app.XCTStart()
         defer { app.XCTStop() }
 
-        let testBuffer = randomBuffer(size: 150000)
+        let testBuffer = self.randomBuffer(size: 150_000)
         var testBufferCopy = testBuffer
         let compressedBuffer = try testBufferCopy.compress(with: .gzip)
         app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
@@ -96,7 +96,7 @@ class HummingBirdCompressionTests: XCTestCase {
         // create buffer that compresses down very small
         var testBuffer = ByteBufferAllocator().buffer(capacity: 65536)
         for i in 0..<65536 {
-            testBuffer.writeInteger(UInt8(i & 0xff))
+            testBuffer.writeInteger(UInt8(i & 0xFF))
         }
         var testBufferCopy = testBuffer
         let compressedBuffer = try testBufferCopy.compress(with: .gzip)
