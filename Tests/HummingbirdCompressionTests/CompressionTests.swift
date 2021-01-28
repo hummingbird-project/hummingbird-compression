@@ -14,7 +14,7 @@ class HummingBirdCompressionTests: XCTestCase {
     }
 
     func testCompressResponse() {
-        let app = HBApplication(.testing)
+        let app = HBApplication(testing: .embedded)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -24,15 +24,15 @@ class HummingBirdCompressionTests: XCTestCase {
         defer { app.XCTStop() }
 
         let testBuffer = randomBuffer(size: 261335)
-        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: testBuffer) { response in
+        app.XCTExecute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: testBuffer) { response in
             var body = response.body
-            let uncompressed = try? body.decompress(with: .gzip)
+            let uncompressed = try body?.decompress(with: .gzip)
             XCTAssertEqual(uncompressed, testBuffer)
-        })
+        }
     }
 
     func testDecompressRequest() throws {
-        let app = HBApplication(.testing)
+        let app = HBApplication(testing: .embedded)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -44,13 +44,13 @@ class HummingBirdCompressionTests: XCTestCase {
         let testBuffer = randomBuffer(size: 261335)
         var testBufferCopy = testBuffer
         let compressedBuffer = try testBufferCopy.compress(with: .gzip)
-        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
+        app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.body, testBuffer)
-        })
+        }
     }
 
     func testNoCompression() throws {
-        let app = HBApplication(.testing)
+        let app = HBApplication(testing: .embedded)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -60,13 +60,13 @@ class HummingBirdCompressionTests: XCTestCase {
         defer { app.XCTStop() }
 
         let testBuffer = randomBuffer(size: 261335)
-        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, body: testBuffer) { response in
+        app.XCTExecute(uri: "/echo", method: .GET, body: testBuffer) { response in
             XCTAssertEqual(response.body, testBuffer)
-        })
+        }
     }
 
     func testDecompressSizeLimit() throws {
-        let app = HBApplication(.testing)
+        let app = HBApplication(testing: .embedded)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -78,13 +78,13 @@ class HummingBirdCompressionTests: XCTestCase {
         let testBuffer = randomBuffer(size: 150000)
         var testBufferCopy = testBuffer
         let compressedBuffer = try testBufferCopy.compress(with: .gzip)
-        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
+        app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.status, .payloadTooLarge)
-        })
+        }
     }
 
     func testDecompressRatioLimit() throws {
-        let app = HBApplication(.testing)
+        let app = HBApplication(testing: .embedded)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -100,8 +100,8 @@ class HummingBirdCompressionTests: XCTestCase {
         }
         var testBufferCopy = testBuffer
         let compressedBuffer = try testBufferCopy.compress(with: .gzip)
-        XCTAssertNoThrow(try app.XCTTestResponse(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
+        app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.status, .payloadTooLarge)
-        })
+        }
     }
 }
