@@ -38,25 +38,51 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
     public typealias InboundOut = HTTPServerRequestPart
 
     enum State {
-        case decompressingBody(NIODecompressor)
+        case decompressingBody(NIODecompressor, EventLoopFuture<Void>?)
         case receivingBody
         case idle
+        
+        class DecompressionState {
+            init(decompressor: NIODecompressor) {
+                self.decompressor = decompressor
+                self.futureResult = nil
+                self.compressedSizeRead = 0
+                self.decompressedSizeWritten = 0
+            }
+            let decompressor: NIODecompressor
+            let futureResult: EventLoopFuture<Void>?
+            let compressedSizeRead: Int
+            let decompressedSizeWritten: Int
+        }
     }
 
     var state: State
     let limit: HTTPDecompressionLimit
+    let threadPool: NIOThreadPool
     let decompressorWindow: ByteBuffer
     var compressedSize: Int
     var decompressedSize: Int
+    var queue: TaskQueue<Void>!
 
-    init(limit: HTTPDecompressionLimit, windowSize: Int = 32 * 1024) {
+    init(limit: HTTPDecompressionLimit, threadPool: NIOThreadPool, windowSize: Int = 32 * 1024) {
         self.state = .idle
         self.limit = limit
+        self.threadPool = threadPool
         self.decompressorWindow = ByteBufferAllocator().buffer(capacity: windowSize)
         self.compressedSize = 0
         self.decompressedSize = 0
     }
 
+    func handlerAdded(context: ChannelHandlerContext) {
+        self.queue = TaskQueue(on: context.eventLoop)
+    }
+    
+    func handlerRemoved(context: ChannelHandlerContext) {
+        // cancel any queued actions
+        self.queue.cancelQueue()
+        self.queue = nil
+    }
+    
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let part = unwrapInboundIn(data)
 
@@ -71,25 +97,42 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                 } catch {
                     context.fireErrorCaught(HBHTTPError(.internalServerError))
                 }
-                self.state = .decompressingBody(decompressor)
+                self.state = .decompressingBody(decompressor, nil)
             } else {
                 self.state = .receivingBody
             }
             context.fireChannelRead(self.wrapInboundOut(.head(head)))
 
-        case (.body(let part), .decompressingBody(let decompressor)):
-            self.writeBuffer(context: context, buffer: part, decompressor: decompressor)
-
+        case (.body(let part), .decompressingBody(let decompressor, _)):
+            let future = queue.submitTask {
+                self.threadPool.runIfActive(eventLoop: context.eventLoop) {
+                    self.writeBuffer(context: context, buffer: part, decompressor: decompressor)
+                }
+            }
+            self.state = .decompressingBody(decompressor, future)
+            
         case (.body, .receivingBody):
             context.fireChannelRead(data)
 
-        case (.end, .decompressingBody(let decompressor)):
-            do {
-                try decompressor.finishStream()
-            } catch {
-                context.fireErrorCaught(HBHTTPError(.internalServerError))
+        case (.end, .decompressingBody(let decompressor, let future)):
+            if let future = future {
+                // wait until last body part has been passed on
+                future.whenComplete { _ in
+                    do {
+                        try decompressor.finishStream()
+                    } catch {
+                        context.fireErrorCaught(HBHTTPError(.internalServerError))
+                    }
+                    context.fireChannelRead(data)
+                }
+            } else {
+                do {
+                    try decompressor.finishStream()
+                } catch {
+                    context.fireErrorCaught(HBHTTPError(.internalServerError))
+                }
+                context.fireChannelRead(data)
             }
-            context.fireChannelRead(data)
             self.state = .idle
 
         case (.end, .receivingBody):
@@ -108,13 +151,19 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
             self.compressedSize += buffer.readableBytes
             try buffer.decompressStream(with: decompressor) { buffer in
                 self.decompressedSize += buffer.readableBytes
-                context.fireChannelRead(self.wrapInboundOut(.body(buffer)))
+                _ = context.eventLoop.submit {
+                    context.fireChannelRead(self.wrapInboundOut(.body(buffer)))
+                }
             }
             if self.limit.hasExceeded(compressed: self.compressedSize, decompressed: self.decompressedSize) {
-                context.fireErrorCaught(HBHTTPError(.payloadTooLarge))
+                _ = context.eventLoop.submit {
+                    context.fireErrorCaught(HBHTTPError(.payloadTooLarge))
+                }
             }
         } catch {
-            context.fireErrorCaught(HBHTTPError(.badRequest))
+            _ = context.eventLoop.submit {
+                context.fireErrorCaught(HBHTTPError(.badRequest))
+            }
         }
     }
 

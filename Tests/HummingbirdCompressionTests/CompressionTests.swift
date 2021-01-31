@@ -14,7 +14,7 @@ class HummingBirdCompressionTests: XCTestCase {
     }
 
     func testCompressResponse() {
-        let app = HBApplication(testing: .embedded)
+        let app = HBApplication(testing: .live)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -32,7 +32,7 @@ class HummingBirdCompressionTests: XCTestCase {
     }
 
     func testDecompressRequest() throws {
-        let app = HBApplication(testing: .embedded)
+        let app = HBApplication(testing: .live)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -49,8 +49,28 @@ class HummingBirdCompressionTests: XCTestCase {
         }
     }
 
+    func testMultipleDecompressRequests() throws {
+        let app = HBApplication(testing: .live)
+        app.router.get("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+            return .init(status: .ok, headers: [:], body: body)
+        }
+        app.addRequestDecompression(limit: .none)
+        app.XCTStart()
+        defer { app.XCTStop() }
+
+        let buffers = (0..<16).map { self.randomBuffer(size: 236096 + $0 * 1023)}
+        let compressedBuffers = try buffers.map { b -> (ByteBuffer, ByteBuffer) in var b = b; return try (b, b.compress(with:.gzip)) }
+        let futures: [EventLoopFuture<Void>] = compressedBuffers.map { buffers in
+            app.xct.execute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: buffers.1).map { response in
+                XCTAssertEqual(response.body, buffers.0)
+            }
+        }
+        XCTAssertNoThrow(try EventLoopFuture.whenAllComplete(futures, on: app.eventLoopGroup.next()).wait())
+    }
+
     func testNoCompression() throws {
-        let app = HBApplication(testing: .embedded)
+        let app = HBApplication(testing: .live)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -66,7 +86,7 @@ class HummingBirdCompressionTests: XCTestCase {
     }
 
     func testDecompressSizeLimit() throws {
-        let app = HBApplication(testing: .embedded)
+        let app = HBApplication(testing: .live)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
@@ -84,7 +104,7 @@ class HummingBirdCompressionTests: XCTestCase {
     }
 
     func testDecompressRatioLimit() throws {
-        let app = HBApplication(testing: .embedded)
+        let app = HBApplication(testing: .live)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
