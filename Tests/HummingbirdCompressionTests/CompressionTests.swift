@@ -59,11 +59,17 @@ class HummingBirdCompressionTests: XCTestCase {
         app.XCTStart()
         defer { app.XCTStop() }
 
-        let buffers = (0..<16).map { self.randomBuffer(size: 236096 + $0 * 1023)}
+        let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...512000))}
         let compressedBuffers = try buffers.map { b -> (ByteBuffer, ByteBuffer) in var b = b; return try (b, b.compress(with:.gzip)) }
         let futures: [EventLoopFuture<Void>] = compressedBuffers.map { buffers in
-            app.xct.execute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: buffers.1).map { response in
-                XCTAssertEqual(response.body, buffers.0)
+            if Bool.random() == true {
+                return app.xct.execute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: buffers.1).map { response in
+                    XCTAssertEqual(response.body, buffers.0)
+                }
+            } else {
+                return app.xct.execute(uri: "/echo", method: .GET, headers: [:], body: buffers.0).map { response in
+                    XCTAssertEqual(response.body, buffers.0)
+                }
             }
         }
         XCTAssertNoThrow(try EventLoopFuture.whenAllComplete(futures, on: app.eventLoopGroup.next()).wait())
