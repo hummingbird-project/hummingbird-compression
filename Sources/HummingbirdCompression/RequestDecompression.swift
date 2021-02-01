@@ -41,7 +41,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
         case decompressingBody(DecompressionState)
         case receivingBody
         case idle
-        
+
         class DecompressionState {
             init(decompressor: NIODecompressor, limit: HTTPDecompressionLimit) {
                 self.decompressor = decompressor
@@ -51,20 +51,21 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                 self.decompressedSizeWritten = 0
                 self.exceededLimit = false
             }
+
             let decompressor: NIODecompressor
             let limit: HTTPDecompressionLimit
             var futureResult: EventLoopFuture<Void>?
             var compressedSizeRead: Int
             var decompressedSizeWritten: Int
             var exceededLimit: Bool
-            
-            func writeBuffer(buffer: ByteBuffer, _ writeBuffer: (ByteBuffer)->()) throws {
+
+            func writeBuffer(buffer: ByteBuffer, _ writeBuffer: (ByteBuffer) -> Void) throws {
                 // if last write exceeded decompress limit then skip decompression
                 guard self.exceededLimit == false else { return }
                 var buffer = buffer
                 do {
                     self.compressedSizeRead += buffer.readableBytes
-                    try buffer.decompressStream(with: decompressor) { buffer in
+                    try buffer.decompressStream(with: self.decompressor) { buffer in
                         self.decompressedSizeWritten += buffer.readableBytes
                         writeBuffer(buffer)
                     }
@@ -76,11 +77,10 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                     self.exceededLimit = true
                     throw HBHTTPError(.payloadTooLarge)
                 }
-
             }
-            
+
             func finish() throws {
-                try decompressor.finishStream()
+                try self.decompressor.finishStream()
             }
         }
     }
@@ -101,13 +101,13 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
     func handlerAdded(context: ChannelHandlerContext) {
         self.queue = TaskQueue(on: context.eventLoop)
     }
-    
+
     func handlerRemoved(context: ChannelHandlerContext) {
         // cancel any queued actions
         self.queue.cancelQueue()
         self.queue = nil
     }
-    
+
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let part = unwrapInboundIn(data)
 
@@ -127,7 +127,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
             context.fireChannelRead(self.wrapInboundOut(.head(head)))
 
         case (.body(let part), .decompressingBody(let decompressionState)):
-            decompressionState.futureResult = queue.submitTask {
+            decompressionState.futureResult = self.queue.submitTask {
                 self.threadPool.runIfActive(eventLoop: context.eventLoop) {
                     do {
                         try decompressionState.writeBuffer(buffer: part) { buffer in
@@ -142,7 +142,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                     }
                 }
             }
-            
+
         case (.body, .receivingBody):
             context.fireChannelRead(data)
 

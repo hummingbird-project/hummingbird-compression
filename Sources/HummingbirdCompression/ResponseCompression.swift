@@ -77,7 +77,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
                     head.headers.replaceOrAdd(name: "content-encoding", value: compression.name)
                     head.headers.remove(name: "content-length")
                     context.write(wrapOutboundOut(.head(head)), promise: nil)
-                    queue.submitTask {
+                    self.queue.submitTask {
                         self.threadPool.runIfActive(eventLoop: context.eventLoop) {
                             self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
                         }
@@ -97,7 +97,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
         case (.body(let part), .body(let compressor)):
             if let compressor = compressor {
-                queue.submitTask {
+                self.queue.submitTask {
                     self.threadPool.runIfActive(eventLoop: context.eventLoop) {
                         self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
                     }
@@ -116,7 +116,7 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
         case (.end, .body(let compressor)):
             if let compressor = compressor {
                 let pendingPromise = self.pendingPromise
-                queue.submitTask {
+                self.queue.submitTask {
                     self.threadPool.runIfActive(eventLoop: context.eventLoop) {
                         do {
                             self.finalizeStream(context: context, compressor: compressor, promise: nil)
