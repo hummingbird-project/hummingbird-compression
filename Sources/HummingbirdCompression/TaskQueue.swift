@@ -56,17 +56,6 @@ class TaskQueue<Value> {
         }
     }
 
-    /// Return EventLoopFuture that succeeds when all the tasks have completed
-    func flush() -> EventLoopFuture<Void> {
-        self.eventLoop.flatSubmit {
-            var futures = self.queue.map { $0.promise.futureResult }
-            if let inflightTaskFuture = self.inflightTask?.promise.futureResult {
-                futures.append(inflightTaskFuture)
-            }
-            return EventLoopFuture.andAllComplete(futures, on: self.eventLoop)
-        }
-    }
-    
     private func invoke(_ task: PendingTask<Value>) {
         self.eventLoop.preconditionInEventLoop()
 
