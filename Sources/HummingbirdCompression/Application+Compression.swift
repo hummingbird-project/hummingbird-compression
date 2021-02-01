@@ -9,6 +9,6 @@ extension HBApplication {
 
     /// Add Channel Handler for compressing responses where accept-encoding header indicates the client will accept compressed data
     public func addResponseCompression() {
-        self.server.addResponseCompression()
+        self.server.addResponseCompression(threadPool: self.threadPool)
     }
 }
