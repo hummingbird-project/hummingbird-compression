@@ -19,12 +19,25 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
     var acceptQueue: CircularBuffer<[Substring]>
     let compressorWindow: ByteBuffer
     var state: State
+    let threadPool: NIOThreadPool
     var pendingPromise: EventLoopPromise<Void>?
+    var queue: TaskQueue<Void>!
 
-    init(windowSize: Int = 32 * 1024) {
+    init(threadPool: NIOThreadPool, windowSize: Int = 32 * 1024) {
         self.state = .idle
+        self.threadPool = threadPool
         self.acceptQueue = .init(initialCapacity: 4)
         self.compressorWindow = ByteBufferAllocator().buffer(capacity: windowSize)
+    }
+
+    func handlerAdded(context: ChannelHandlerContext) {
+        self.queue = TaskQueue(on: context.eventLoop)
+    }
+
+    func handlerRemoved(context: ChannelHandlerContext) {
+        // cancel any queued actions
+        self.queue.cancelQueue()
+        self.queue = nil
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -64,7 +77,11 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
                     head.headers.replaceOrAdd(name: "content-encoding", value: compression.name)
                     head.headers.remove(name: "content-length")
                     context.write(wrapOutboundOut(.head(head)), promise: nil)
-                    self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
+                    self.queue.submitTask {
+                        self.threadPool.runIfActive(eventLoop: context.eventLoop) {
+                            self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
+                        }
+                    }
                     self.state = .body(compressor)
                 } catch {
                     // if compressor failed to start stream then output uncompressed data
@@ -80,7 +97,11 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
         case (.body(let part), .body(let compressor)):
             if let compressor = compressor {
-                self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
+                self.queue.submitTask {
+                    self.threadPool.runIfActive(eventLoop: context.eventLoop) {
+                        self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
+                    }
+                }
             } else {
                 context.write(data, promise: nil)
             }
@@ -93,15 +114,24 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
             self.state = .idle
 
         case (.end, .body(let compressor)):
-            do {
-                if let compressor = compressor {
-                    self.finalizeStream(context: context, compressor: compressor, promise: nil)
-                    try compressor.finishStream()
+            if let compressor = compressor {
+                let pendingPromise = self.pendingPromise
+                self.queue.submitTask {
+                    self.threadPool.runIfActive(eventLoop: context.eventLoop) {
+                        do {
+                            self.finalizeStream(context: context, compressor: compressor, promise: nil)
+                            try compressor.finishStream()
+                        } catch {
+                            self.pendingPromise?.fail(error)
+                        }
+                        _ = context.eventLoop.submit {
+                            context.writeAndFlush(data, promise: pendingPromise)
+                        }
+                    }
                 }
-            } catch {
-                self.pendingPromise?.fail(error)
+            } else {
+                context.write(data, promise: self.pendingPromise)
             }
-            context.write(data, promise: self.pendingPromise)
             self.pendingPromise = nil
             self.state = .idle
 
@@ -115,7 +145,9 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
         guard case .byteBuffer(var buffer) = part else { fatalError("Cannot currently compress file regions") }
         do {
             try buffer.compressStream(with: compressor, flush: .sync) { buffer in
-                context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+                _ = context.eventLoop.submit {
+                    context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+                }
             }
         } catch {
             promise?.fail(error)
@@ -125,7 +157,9 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
     private func finalizeStream(context: ChannelHandlerContext, compressor: NIOCompressor, promise: EventLoopPromise<Void>?) {
         do {
             try compressor.finishWindowedStream { buffer in
-                context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+                _ = context.eventLoop.submit {
+                    context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+                }
             }
         } catch {
             promise?.fail(error)
