@@ -8,16 +8,14 @@ extension HBHTTPServer {
         threadPool: NIOThreadPool
     ) -> HBHTTPServer {
         return self.addChannelHandler(
-            HTTPRequestDecompressHandler(limit: limit, threadPool: threadPool),
-            position: .afterHTTP
+            HTTPRequestDecompressHandler(limit: limit, threadPool: threadPool)
         )
     }
 
     /// Add Channel Handler for compressing responses where accept-encoding header indicates the client will accept compressed data
     @discardableResult public func addResponseCompression(threadPool: NIOThreadPool) -> HBHTTPServer {
         return self.addChannelHandler(
-            HTTPResponseCompressHandler(threadPool: threadPool),
-            position: .afterHTTP
+            HTTPResponseCompressHandler(threadPool: threadPool)
         )
     }
 }
