@@ -1,12 +1,12 @@
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Soto for AWS open source project
+// This source file is part of the Hummingbird server framework project
 //
-// Copyright (c) 2020-2021 the Soto project authors
+// Copyright (c) 2021-2021 the Hummingbird authors
 // Licensed under Apache License v2.0
 //
 // See LICENSE.txt for license information
-// See CONTRIBUTORS.txt for the list of Soto project authors
+// See hummingbird/CONTRIBUTORS.txt for the list of Hummingbird authors
 //
 // SPDX-License-Identifier: Apache-2.0
 //
