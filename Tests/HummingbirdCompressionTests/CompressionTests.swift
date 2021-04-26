@@ -27,14 +27,14 @@ class HummingBirdCompressionTests: XCTestCase {
         return ByteBufferAllocator().buffer(bytes: data)
     }
 
-    func testCompressResponse() {
+    func testCompressResponse() throws {
         let app = HBApplication(testing: .live)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
         app.addResponseCompression()
-        app.XCTStart()
+        try app.XCTStart()
         defer { app.XCTStop() }
 
         let testBuffer = self.randomBuffer(size: 261_335)
@@ -45,14 +45,14 @@ class HummingBirdCompressionTests: XCTestCase {
         }
     }
 
-    func testMultipleCompressResponse() {
+    func testMultipleCompressResponse() throws {
         let app = HBApplication(testing: .live)
         app.router.get("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
         app.addResponseCompression()
-        app.XCTStart()
+        try app.XCTStart()
         defer { app.XCTStop() }
 
         let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...512_000)) }
@@ -79,7 +79,7 @@ class HummingBirdCompressionTests: XCTestCase {
             return .init(status: .ok, headers: [:], body: body)
         }
         app.addRequestDecompression(limit: .none)
-        app.XCTStart()
+        try app.XCTStart()
         defer { app.XCTStop() }
 
         let testBuffer = self.randomBuffer(size: 261_335)
@@ -97,7 +97,7 @@ class HummingBirdCompressionTests: XCTestCase {
             return .init(status: .ok, headers: [:], body: body)
         }
         app.addRequestDecompression(limit: .none)
-        app.XCTStart()
+        try app.XCTStart()
         defer { app.XCTStop() }
 
         let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...512_000)) }
@@ -123,7 +123,7 @@ class HummingBirdCompressionTests: XCTestCase {
             return .init(status: .ok, headers: [:], body: body)
         }
         app.addRequestDecompression(limit: .none)
-        app.XCTStart()
+        try app.XCTStart()
         defer { app.XCTStop() }
 
         let testBuffer = self.randomBuffer(size: 261_335)
@@ -139,7 +139,7 @@ class HummingBirdCompressionTests: XCTestCase {
             return .init(status: .ok, headers: [:], body: body)
         }
         app.addRequestDecompression(limit: .size(50000))
-        app.XCTStart()
+        try app.XCTStart()
         defer { app.XCTStop() }
 
         let testBuffer = self.randomBuffer(size: 150_000)
@@ -157,7 +157,7 @@ class HummingBirdCompressionTests: XCTestCase {
             return .init(status: .ok, headers: [:], body: body)
         }
         app.addRequestDecompression(limit: .ratio(3))
-        app.XCTStart()
+        try app.XCTStart()
         defer { app.XCTStop() }
 
         // create buffer that compresses down very small
