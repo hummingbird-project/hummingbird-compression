@@ -5,6 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "hummingbird-compression",
+    platforms: [.iOS(.v12), .tvOS(.v12)],
     products: [
         .library(name: "HummingbirdCompression", targets: ["HummingbirdCompression"]),
     ],
