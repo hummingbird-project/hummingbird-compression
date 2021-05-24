@@ -75,7 +75,7 @@ class HummingBirdCompressionTests: XCTestCase {
         try app.XCTStart()
         defer { app.XCTStop() }
 
-        let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...512_000)) }
+        let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...256_000)) }
         let futures: [EventLoopFuture<Void>] = buffers.map { buffer in
             if Bool.random() == true {
                 return app.xct.execute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: buffer).flatMapThrowing { response in
