@@ -79,7 +79,25 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.addRequestDecompression(limit: .none)
+        app.addRequestDecompression(useThreadPool: true, limit: .none)
+        try app.XCTStart()
+        defer { app.XCTStop() }
+
+        let testBuffer = self.randomBuffer(size: 261_335)
+        var testBufferCopy = testBuffer
+        let compressedBuffer = try testBufferCopy.compress(with: .gzip)
+        app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
+            XCTAssertEqual(response.body, testBuffer)
+        }
+    }
+
+    func testDecompressRequestWithoutThreadPool() throws {
+        let app = HBApplication(testing: .live)
+        app.router.get("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+            return .init(status: .ok, headers: [:], body: body)
+        }
+        app.addRequestDecompression(useThreadPool: false, limit: .none)
         try app.XCTStart()
         defer { app.XCTStop() }
 
@@ -97,7 +115,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.addRequestDecompression(limit: .none)
+        app.addRequestDecompression(useThreadPool: true, limit: .none)
         try app.start()
         defer { app.stop() }
 
@@ -133,7 +151,33 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.addRequestDecompression(limit: .none)
+        app.addRequestDecompression(useThreadPool: true, limit: .none)
+        try app.XCTStart()
+        defer { app.XCTStop() }
+
+        let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...512_000)) }
+        let compressedBuffers = try buffers.map { b -> (ByteBuffer, ByteBuffer) in var b = b; return try (b, b.compress(with: .gzip)) }
+        let futures: [EventLoopFuture<Void>] = compressedBuffers.map { buffers in
+            if Bool.random() == true {
+                return app.xct.execute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: buffers.1).map { response in
+                    XCTAssertEqual(response.body, buffers.0)
+                }
+            } else {
+                return app.xct.execute(uri: "/echo", method: .GET, headers: [:], body: buffers.0).map { response in
+                    XCTAssertEqual(response.body, buffers.0)
+                }
+            }
+        }
+        XCTAssertNoThrow(try EventLoopFuture.whenAllComplete(futures, on: app.eventLoopGroup.next()).wait())
+    }
+
+    func testMultipleDecompressRequestsWithoutThreadPool() throws {
+        let app = HBApplication(testing: .live, configuration: .init(enableHttpPipelining: false))
+        app.router.get("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+            return .init(status: .ok, headers: [:], body: body)
+        }
+        app.addRequestDecompression(useThreadPool: false, limit: .none)
         try app.XCTStart()
         defer { app.XCTStop() }
 
@@ -159,7 +203,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.addRequestDecompression(limit: .none)
+        app.addRequestDecompression(useThreadPool: true, limit: .none)
         try app.XCTStart()
         defer { app.XCTStop() }
 
@@ -175,7 +219,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.addRequestDecompression(limit: .size(50000))
+        app.addRequestDecompression(useThreadPool: true, limit: .size(50000))
         try app.XCTStart()
         defer { app.XCTStop() }
 
@@ -193,7 +237,7 @@ class HummingBirdCompressionTests: XCTestCase {
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
-        app.addRequestDecompression(limit: .ratio(3))
+        app.addRequestDecompression(useThreadPool: true, limit: .ratio(3))
         try app.XCTStart()
         defer { app.XCTStop() }
 

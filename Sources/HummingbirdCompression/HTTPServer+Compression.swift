@@ -19,7 +19,7 @@ extension HBHTTPServer {
     /// - Parameter limit: Indicate the memory limit of how much to decompress to
     @discardableResult public func addRequestDecompression(
         limit: HTTPDecompressionLimit,
-        threadPool: NIOThreadPool
+        threadPool: NIOThreadPool?
     ) -> HBHTTPServer {
         return self.addChannelHandler(
             HTTPRequestDecompressHandler(limit: limit, threadPool: threadPool)
