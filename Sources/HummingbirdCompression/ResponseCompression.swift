@@ -26,7 +26,8 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
     enum State {
         case head(HTTPResponseHead)
-        case body(NIOCompressor?)
+        case body(NIOCompressor, Bool)
+        case uncompressedBody
         case idle
     }
 
@@ -34,12 +35,14 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
     let compressorWindow: ByteBuffer
     var state: State
     let threadPool: NIOThreadPool?
+    let threadPoolThreshold: Int
     var pendingPromise: EventLoopPromise<Void>?
     var queue: TaskQueue<Void>!
 
-    init(threadPool: NIOThreadPool?, windowSize: Int = 32 * 1024) {
+    init(threadPool: NIOThreadPool?, threadPoolThreshold: Int, windowSize: Int = 32 * 1024) {
         self.state = .idle
         self.threadPool = threadPool
+        self.threadPoolThreshold = threadPoolThreshold
         self.acceptQueue = .init(initialCapacity: 4)
         self.compressorWindow = ByteBufferAllocator().buffer(capacity: windowSize)
     }
@@ -86,47 +89,47 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
                 compressor.window = self.compressorWindow
                 do {
                     try compressor.startStream()
-
+                    let useThreadPool = part.readableBytes > self.threadPoolThreshold
                     // edit header, removing content-length and adding content-encoding
                     head.headers.replaceOrAdd(name: "content-encoding", value: compression.name)
                     head.headers.remove(name: "content-length")
                     context.write(wrapOutboundOut(.head(head)), promise: nil)
-                    if let threadPool = self.threadPool {
+                    if useThreadPool, let threadPool = self.threadPool {
+                        self.state = .body(compressor, true)
                         self.queue.submitTask {
                             threadPool.runIfActive(eventLoop: context.eventLoop) {
                                 self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
                             }
                         }
                     } else {
+                        self.state = .body(compressor, false)
                         self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
                     }
-                    self.state = .body(compressor)
                 } catch {
                     // if compressor failed to start stream then output uncompressed data
-                    self.state = .body(nil)
+                    self.state = .uncompressedBody
                     context.write(wrapOutboundOut(.head(head)), promise: nil)
                     context.write(data, promise: nil)
                 }
             } else {
-                self.state = .body(nil)
+                self.state = .uncompressedBody
                 context.write(wrapOutboundOut(.head(head)), promise: nil)
                 context.write(data, promise: nil)
             }
 
-        case (.body(let part), .body(let compressor)):
-            if let compressor = compressor {
-                if let threadPool = self.threadPool {
-                    self.queue.submitTask {
-                        threadPool.runIfActive(eventLoop: context.eventLoop) {
-                            self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
-                        }
+        case (.body(let part), .body(let compressor, let useThreadPool)):
+            if useThreadPool, let threadPool = self.threadPool {
+                self.queue.submitTask {
+                    threadPool.runIfActive(eventLoop: context.eventLoop) {
+                        self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
                     }
-                } else {
-                    self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
                 }
             } else {
-                context.write(data, promise: nil)
+                self.writeBuffer(context: context, part: part, compressor: compressor, promise: nil)
             }
+
+        case (.body, .uncompressedBody):
+            context.write(data, promise: nil)
 
         case (.end, .head(let head)):
             self.state = .idle
@@ -134,36 +137,37 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
             context.write(data, promise: self.pendingPromise)
             self.pendingPromise = nil
 
-        case (.end, .body(let compressor)):
+        case (.end, .body(let compressor, let useThreadPool)):
             self.state = .idle
-            if let compressor = compressor {
-                let pendingPromise = self.pendingPromise
-                if let threadPool = self.threadPool {
-                    self.queue.submitTask {
-                        threadPool.runIfActive(eventLoop: context.eventLoop) {
-                            do {
-                                self.finalizeStream(context: context, compressor: compressor, promise: nil)
-                                try compressor.finishStream()
-                            } catch {
-                                self.pendingPromise?.fail(error)
-                            }
-                            context.eventLoop.execute {
-                                context.writeAndFlush(data, promise: pendingPromise)
-                            }
+            let pendingPromise = self.pendingPromise
+            if useThreadPool, let threadPool = self.threadPool {
+                self.queue.submitTask {
+                    threadPool.runIfActive(eventLoop: context.eventLoop) {
+                        do {
+                            self.finalizeStream(context: context, compressor: compressor, promise: nil)
+                            try compressor.finishStream()
+                        } catch {
+                            self.pendingPromise?.fail(error)
+                        }
+                        context.eventLoop.execute {
+                            context.writeAndFlush(data, promise: pendingPromise)
                         }
                     }
-                } else {
-                    do {
-                        self.finalizeStream(context: context, compressor: compressor, promise: nil)
-                        try compressor.finishStream()
-                    } catch {
-                        self.pendingPromise?.fail(error)
-                    }
-                    context.writeAndFlush(data, promise: pendingPromise)
                 }
             } else {
-                context.write(data, promise: self.pendingPromise)
+                do {
+                    self.finalizeStream(context: context, compressor: compressor, promise: nil)
+                    try compressor.finishStream()
+                } catch {
+                    self.pendingPromise?.fail(error)
+                }
+                context.writeAndFlush(data, promise: pendingPromise)
             }
+            self.pendingPromise = nil
+
+        case (.end, .uncompressedBody):
+            self.state = .idle
+            context.write(data, promise: self.pendingPromise)
             self.pendingPromise = nil
 
         default:
