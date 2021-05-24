@@ -46,7 +46,6 @@ class HummingBirdCompressionTests: XCTestCase {
         }
     }
 
-
     func testCompressResponseWithoutThreadPool() throws {
         let app = HBApplication(testing: .live, configuration: .init(enableHttpPipelining: false))
         app.router.get("/echo") { request -> HBResponse in

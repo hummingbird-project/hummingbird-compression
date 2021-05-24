@@ -22,7 +22,7 @@ extension HBApplication {
             self.configuration.enableHttpPipelining || useThreadPool == false,
             "Request decompression on the thread pool requires HTTP pipelining assist to be enabled"
         )
-        self.server.addRequestDecompression(limit: limit, threadPool: useThreadPool ? self.threadPool: nil)
+        self.server.addRequestDecompression(limit: limit, threadPool: useThreadPool ? self.threadPool : nil)
     }
 
     /// Add Channel Handler for compressing responses where accept-encoding header indicates the client will accept compressed data
@@ -31,6 +31,6 @@ extension HBApplication {
             self.configuration.enableHttpPipelining || useThreadPool == false,
             "Response compression on the thread pool requires HTTP pipelining assist to be enabled"
         )
-        self.server.addResponseCompression(threadPool: useThreadPool ? self.threadPool: nil)
+        self.server.addResponseCompression(threadPool: useThreadPool ? self.threadPool : nil)
     }
 }
