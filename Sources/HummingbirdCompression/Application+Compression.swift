@@ -26,8 +26,11 @@ extension HBApplication {
     }
 
     /// Add Channel Handler for compressing responses where accept-encoding header indicates the client will accept compressed data
-    public func addResponseCompression() {
-        precondition(self.configuration.enableHttpPipelining, "Response compression does not work without HTTP pipelining assist enabled")
-        self.server.addResponseCompression(threadPool: self.threadPool)
+    public func addResponseCompression(useThreadPool: Bool) {
+        precondition(
+            self.configuration.enableHttpPipelining || useThreadPool == false,
+            "Response compression on the thread pool requires HTTP pipelining assist to be enabled"
+        )
+        self.server.addResponseCompression(threadPool: useThreadPool ? self.threadPool: nil)
     }
 }
