@@ -103,14 +103,14 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
                     self.state = .body(compressor)
                 } catch {
                     // if compressor failed to start stream then output uncompressed data
+                    self.state = .body(nil)
                     context.write(wrapOutboundOut(.head(head)), promise: nil)
                     context.write(data, promise: nil)
-                    self.state = .body(nil)
                 }
             } else {
+                self.state = .body(nil)
                 context.write(wrapOutboundOut(.head(head)), promise: nil)
                 context.write(data, promise: nil)
-                self.state = .body(nil)
             }
 
         case (.body(let part), .body(let compressor)):
@@ -127,15 +127,15 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
             } else {
                 context.write(data, promise: nil)
             }
-            self.state = .body(compressor)
 
         case (.end, .head(let head)):
+            self.state = .idle
             context.write(wrapOutboundOut(.head(head)), promise: nil)
             context.write(data, promise: self.pendingPromise)
             self.pendingPromise = nil
-            self.state = .idle
 
         case (.end, .body(let compressor)):
+            self.state = .idle
             if let compressor = compressor {
                 let pendingPromise = self.pendingPromise
                 if let threadPool = self.threadPool {
@@ -165,7 +165,6 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
                 context.write(data, promise: self.pendingPromise)
             }
             self.pendingPromise = nil
-            self.state = .idle
 
         default:
             assertionFailure("Shouldn't get here")
