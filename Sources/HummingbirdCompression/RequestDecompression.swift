@@ -53,6 +53,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
 
     enum State {
         case decompressingBody(DecompressionState)
+        case finishingDecompress
         case receivingBody
         case idle
 
@@ -162,8 +163,10 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
 
         case (.end, .decompressingBody(let decompressionState)):
             if let future = decompressionState.futureResult {
+                self.state = .finishingDecompress
                 // wait until last body part has been passed on
                 future.whenComplete { _ in
+                    self.state = .idle
                     do {
                         try decompressionState.finish()
                     } catch {
@@ -172,6 +175,7 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                     context.fireChannelRead(data)
                 }
             } else {
+                self.state = .idle
                 do {
                     try decompressionState.finish()
                 } catch {
@@ -179,11 +183,10 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                 }
                 context.fireChannelRead(data)
             }
-            self.state = .idle
 
         case (.end, .receivingBody):
-            context.fireChannelRead(data)
             self.state = .idle
+            context.fireChannelRead(data)
 
         default:
             assertionFailure("Shouldn't get here")

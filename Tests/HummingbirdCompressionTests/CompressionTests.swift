@@ -14,7 +14,8 @@
 
 import CompressNIO
 import Hummingbird
-@testable import HummingbirdCompression
+import HummingbirdCompression
+import HummingbirdCoreXCT
 import HummingbirdXCT
 import XCTest
 
@@ -88,6 +89,42 @@ class HummingBirdCompressionTests: XCTestCase {
         app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.body, testBuffer)
         }
+    }
+
+    func testDoubleDecompressRequests() throws {
+        let app = HBApplication()
+        app.router.post("/echo") { request -> HBResponse in
+            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
+            return .init(status: .ok, headers: [:], body: body)
+        }
+        app.addRequestDecompression(limit: .none)
+        try app.start()
+        defer { app.stop() }
+
+        let client = HBXCTClient(
+            host: "localhost",
+            port: app.configuration.address.port!,
+            configuration: .init(timeout: .seconds(60)),
+            eventLoopGroupProvider: .createNew
+        )
+        client.connect()
+        defer { XCTAssertNoThrow(try client.syncShutdown()) }
+
+        func compress(_ buffer: ByteBuffer) throws -> ByteBuffer {
+            var b = buffer
+            return try b.compress(with: .gzip)
+        }
+        let buffer1 = self.randomBuffer(size: 256_000)
+        let buffer2 = self.randomBuffer(size: 256_000)
+        let compressedBuffer1 = try compress(buffer1)
+        let compressedBuffer2 = try compress(buffer2)
+        let future1 = client.post("/echo", headers: ["content-encoding": "gzip"], body: compressedBuffer1).map { response in
+            XCTAssertEqual(response.body, buffer1)
+        }
+        let future2 = client.post("/echo", headers: ["content-encoding": "gzip"], body: compressedBuffer2).map { response in
+            XCTAssertEqual(response.body, buffer2)
+        }
+        XCTAssertNoThrow(try future1.and(future2).wait())
     }
 
     func testMultipleDecompressRequests() throws {
