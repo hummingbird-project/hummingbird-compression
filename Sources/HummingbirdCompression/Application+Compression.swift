@@ -15,7 +15,6 @@
 import Hummingbird
 
 extension HBApplication {
-
     /// Indicate where the response compression tasks should be executed
     public enum RequestCompressionExecutionPreference {
         /// run decompression tasks on the EventLoop
