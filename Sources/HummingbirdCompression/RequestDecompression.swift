@@ -102,11 +102,11 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
 
     var state: State
     let limit: HTTPDecompressionLimit
-    let threadPool: NIOThreadPool
+    let threadPool: NIOThreadPool?
     let decompressorWindow: ByteBuffer
     var queue: TaskQueue<Void>!
 
-    init(limit: HTTPDecompressionLimit, threadPool: NIOThreadPool, windowSize: Int = 32 * 1024) {
+    init(limit: HTTPDecompressionLimit, threadPool: NIOThreadPool?, windowSize: Int = 32 * 1024) {
         self.state = .idle
         self.limit = limit
         self.threadPool = threadPool
@@ -142,19 +142,29 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
             context.fireChannelRead(self.wrapInboundOut(.head(head)))
 
         case (.body(let part), .decompressingBody(let decompressionState)):
-            decompressionState.futureResult = self.queue.submitTask {
-                self.threadPool.runIfActive(eventLoop: context.eventLoop) {
-                    do {
-                        try decompressionState.writeBuffer(buffer: part) { buffer in
-                            _ = context.eventLoop.submit {
-                                context.fireChannelRead(self.wrapInboundOut(.body(buffer)))
+            if let threadPool = threadPool {
+                decompressionState.futureResult = self.queue.submitTask {
+                    threadPool.runIfActive(eventLoop: context.eventLoop) {
+                        do {
+                            try decompressionState.writeBuffer(buffer: part) { buffer in
+                                context.eventLoop.execute {
+                                    context.fireChannelRead(self.wrapInboundOut(.body(buffer)))
+                                }
+                            }
+                        } catch {
+                            context.eventLoop.execute {
+                                context.fireErrorCaught(error)
                             }
                         }
-                    } catch {
-                        _ = context.eventLoop.submit {
-                            context.fireErrorCaught(error)
-                        }
                     }
+                }
+            } else {
+                do {
+                    try decompressionState.writeBuffer(buffer: part) { buffer in
+                        context.fireChannelRead(self.wrapInboundOut(.body(buffer)))
+                    }
+                } catch {
+                    context.fireErrorCaught(error)
                 }
             }
 
