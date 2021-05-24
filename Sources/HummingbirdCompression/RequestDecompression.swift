@@ -147,12 +147,12 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
                     threadPool.runIfActive(eventLoop: context.eventLoop) {
                         do {
                             try decompressionState.writeBuffer(buffer: part) { buffer in
-                                _ = context.eventLoop.submit {
+                                context.eventLoop.execute {
                                     context.fireChannelRead(self.wrapInboundOut(.body(buffer)))
                                 }
                             }
                         } catch {
-                            _ = context.eventLoop.submit {
+                            context.eventLoop.execute {
                                 context.fireErrorCaught(error)
                             }
                         }
