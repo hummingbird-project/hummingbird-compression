@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import Hummingbird
+import NIOPosix
 
 extension HBApplication {
     /// Indicate where the response compression tasks should be executed

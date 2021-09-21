@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import Hummingbird
+import NIOPosix
 
 extension HBHTTPServer {
     /// Add Channel Handler for decompressing request that have Content-Encoding header set to gzip or deflate
