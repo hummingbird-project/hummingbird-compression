@@ -156,18 +156,18 @@ class HummingBirdCompressionTests: XCTestCase {
     }
 
     func testDoubleDecompressRequests() throws {
-        let app = HBApplication()
+        let app = HBApplication(testing: .live)
         app.router.post("/echo") { request -> HBResponse in
             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
             return .init(status: .ok, headers: [:], body: body)
         }
         app.addRequestDecompression(execute: .onThreadPool, limit: .none)
-        try app.start()
-        defer { app.stop() }
+        try app.XCTStart()
+        defer { app.XCTStop() }
 
         let client = HBXCTClient(
             host: "localhost",
-            port: app.configuration.address.port!,
+            port: app.server.port!,
             configuration: .init(timeout: .seconds(60)),
             eventLoopGroupProvider: .createNew
         )
