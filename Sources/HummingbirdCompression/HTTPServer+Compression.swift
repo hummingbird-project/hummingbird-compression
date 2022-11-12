@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Hummingbird
+import HummingbirdCore
 import NIOPosix
 
 extension HBHTTPServer {
