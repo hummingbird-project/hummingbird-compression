@@ -209,9 +209,9 @@ class HTTPRequestDecompressHandler: ChannelInboundHandler, RemovableChannelHandl
         for encoding in contentEncodingHeaders {
             switch encoding {
             case "gzip":
-                return CompressionAlgorithm.gzip.decompressor
+                return CompressionAlgorithm.gzip.decompressor()
             case "deflate":
-                return CompressionAlgorithm.deflate.decompressor
+                return CompressionAlgorithm.deflate.decompressor()
             default:
                 break
             }
