@@ -41,7 +41,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
         try app.XCTExecute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: testBuffer) { response in
             var body = response.body
-            let uncompressed = try body?.decompress(with: .gzip)
+            let uncompressed = try body?.decompress(with: .gzip())
             XCTAssertEqual(uncompressed, testBuffer)
         }
     }
@@ -59,7 +59,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let testBuffer = self.randomBuffer(size: 261_335)
         try app.XCTExecute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: testBuffer) { response in
             var body = response.body
-            let uncompressed = try body?.decompress(with: .gzip)
+            let uncompressed = try body?.decompress(with: .gzip())
             XCTAssertEqual(uncompressed, testBuffer)
         }
     }
@@ -80,7 +80,7 @@ class HummingBirdCompressionTests: XCTestCase {
             if Bool.random() == true {
                 return app.xct.execute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: buffer).flatMapThrowing { response in
                     var body = try XCTUnwrap(response.body)
-                    let uncompressed = try body.decompress(with: .gzip)
+                    let uncompressed = try body.decompress(with: .gzip())
                     XCTAssertEqual(uncompressed, buffer)
                 }
             } else {
@@ -107,7 +107,7 @@ class HummingBirdCompressionTests: XCTestCase {
             if Bool.random() == true {
                 return app.xct.execute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: buffer).flatMapThrowing { response in
                     var body = try XCTUnwrap(response.body)
-                    let uncompressed = try body.decompress(with: .gzip)
+                    let uncompressed = try body.decompress(with: .gzip())
                     XCTAssertEqual(uncompressed, buffer)
                 }
             } else {
@@ -131,7 +131,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
         let testBuffer = self.randomBuffer(size: 261_335)
         var testBufferCopy = testBuffer
-        let compressedBuffer = try testBufferCopy.compress(with: .gzip)
+        let compressedBuffer = try testBufferCopy.compress(with: .gzip())
         try app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.body, testBuffer)
         }
@@ -149,7 +149,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
         let testBuffer = self.randomBuffer(size: 261_335)
         var testBufferCopy = testBuffer
-        let compressedBuffer = try testBufferCopy.compress(with: .gzip)
+        let compressedBuffer = try testBufferCopy.compress(with: .gzip())
         try app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.body, testBuffer)
         }
@@ -176,7 +176,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
         func compress(_ buffer: ByteBuffer) throws -> ByteBuffer {
             var b = buffer
-            return try b.compress(with: .gzip)
+            return try b.compress(with: .gzip())
         }
         let buffer1 = self.randomBuffer(size: 256_000)
         let buffer2 = self.randomBuffer(size: 256_000)
@@ -202,7 +202,7 @@ class HummingBirdCompressionTests: XCTestCase {
         defer { app.XCTStop() }
 
         let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...512_000)) }
-        let compressedBuffers = try buffers.map { b -> (ByteBuffer, ByteBuffer) in var b = b; return try (b, b.compress(with: .gzip)) }
+        let compressedBuffers = try buffers.map { b -> (ByteBuffer, ByteBuffer) in var b = b; return try (b, b.compress(with: .gzip())) }
         let futures: [EventLoopFuture<Void>] = compressedBuffers.map { buffers in
             if Bool.random() == true {
                 return app.xct.execute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: buffers.1).map { response in
@@ -228,7 +228,7 @@ class HummingBirdCompressionTests: XCTestCase {
         defer { app.XCTStop() }
 
         let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...512_000)) }
-        let compressedBuffers = try buffers.map { b -> (ByteBuffer, ByteBuffer) in var b = b; return try (b, b.compress(with: .gzip)) }
+        let compressedBuffers = try buffers.map { b -> (ByteBuffer, ByteBuffer) in var b = b; return try (b, b.compress(with: .gzip())) }
         let futures: [EventLoopFuture<Void>] = compressedBuffers.map { buffers in
             if Bool.random() == true {
                 return app.xct.execute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: buffers.1).map { response in
@@ -271,7 +271,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
         let testBuffer = self.randomBuffer(size: 150_000)
         var testBufferCopy = testBuffer
-        let compressedBuffer = try testBufferCopy.compress(with: .gzip)
+        let compressedBuffer = try testBufferCopy.compress(with: .gzip())
         try app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.status, .payloadTooLarge)
         }
@@ -293,7 +293,7 @@ class HummingBirdCompressionTests: XCTestCase {
             testBuffer.writeInteger(UInt8(i & 0xFF))
         }
         var testBufferCopy = testBuffer
-        let compressedBuffer = try testBufferCopy.compress(with: .gzip)
+        let compressedBuffer = try testBufferCopy.compress(with: .gzip())
         try app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
             XCTAssertEqual(response.status, .payloadTooLarge)
         }

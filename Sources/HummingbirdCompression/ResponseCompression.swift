@@ -243,15 +243,15 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
 
         if gzipQValue > 0 || deflateQValue > 0 {
             if gzipQValue > deflateQValue {
-                return (compressor: CompressionAlgorithm.gzip.compressor(), name: "gzip")
+                return (compressor: CompressionAlgorithm.gzip().compressor, name: "gzip")
             } else {
-                return (compressor: CompressionAlgorithm.deflate.compressor(), name: "deflate")
+                return (compressor: CompressionAlgorithm.zlib().compressor, name: "deflate")
             }
         } else if anyQValue > 0 {
             // Though gzip is usually less well compressed than deflate, it has slightly
             // wider support because it's unabiguous. We therefore default to that unless
             // the client has expressed a preference.
-            return (compressor: CompressionAlgorithm.gzip.compressor(), name: "gzip")
+            return (compressor: CompressionAlgorithm.gzip().compressor, name: "gzip")
         }
 
         return nil
