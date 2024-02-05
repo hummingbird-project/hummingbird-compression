@@ -11,7 +11,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-
+/*
 import Hummingbird
 import NIOPosix
 
@@ -56,3 +56,4 @@ extension HBApplication {
         }
     }
 }
+*/

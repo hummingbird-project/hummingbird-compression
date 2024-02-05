@@ -11,7 +11,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-
+/*
 import CompressNIO
 import Hummingbird
 import NIO
@@ -257,3 +257,4 @@ class HTTPResponseCompressHandler: ChannelDuplexHandler, RemovableChannelHandler
         return nil
     }
 }
+*/

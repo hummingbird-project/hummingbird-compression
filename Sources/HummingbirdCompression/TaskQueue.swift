@@ -11,7 +11,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-
+/*
 import Foundation
 import NIO
 
@@ -82,3 +82,4 @@ class TaskQueue<Value> {
         }
     }
 }
+*/
