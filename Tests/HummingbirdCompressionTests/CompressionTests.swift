@@ -15,7 +15,6 @@
 import CompressNIO
 import Hummingbird
 import HummingbirdCompression
-import HummingbirdCoreXCT
 import HummingbirdXCT
 import XCTest
 
@@ -117,26 +116,26 @@ class HummingBirdCompressionTests: XCTestCase {
             }
         }
         XCTAssertNoThrow(try EventLoopFuture.whenAllComplete(futures, on: app.eventLoopGroup.next()).wait())
-    }
+    }*/
 
-    func testDecompressRequest() throws {
-        let app = HBApplication(testing: .live)
-        app.router.get("/echo") { request -> HBResponse in
-            let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
-            return .init(status: .ok, headers: [:], body: body)
+    func testDecompressRequest() async throws {
+        let router = HBRouter()
+        router.middlewares.add(HBRequestDecompressionMiddleware())
+        router.get("/echo") { request, context -> HBResponse in
+            let body = try await request.body.collect(upTo: .max)
+            return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
         }
-        app.addRequestDecompression(execute: .onThreadPool, limit: .none)
-        try app.XCTStart()
-        defer { app.XCTStop() }
-
-        let testBuffer = self.randomBuffer(size: 261_335)
-        var testBufferCopy = testBuffer
-        let compressedBuffer = try testBufferCopy.compress(with: .gzip())
-        try app.XCTExecute(uri: "/echo", method: .GET, headers: ["content-encoding": "gzip"], body: compressedBuffer) { response in
-            XCTAssertEqual(response.body, testBuffer)
+        let app = HBApplication(router: router)
+        try await app.test(.router) { client in
+            let testBuffer = self.randomBuffer(size: 261_335)
+            var testBufferCopy = testBuffer
+            let compressedBuffer = try testBufferCopy.compress(with: .gzip())
+            try await client.XCTExecute(uri: "/echo", method: .get, headers: [.contentEncoding: "gzip"], body: compressedBuffer) { response in
+                XCTAssertEqual(response.body, testBuffer)
+            }
         }
     }
-
+/*
     func testDecompressRequestWithoutThreadPool() throws {
         let app = HBApplication(testing: .live)
         app.router.get("/echo") { request -> HBResponse in
