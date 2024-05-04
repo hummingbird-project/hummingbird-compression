@@ -15,7 +15,7 @@
 import CompressNIO
 import Hummingbird
 
-public struct HBRequestDecompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
+public struct RequestDecompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
     public init() {}
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {

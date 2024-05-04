@@ -18,17 +18,18 @@ import Hummingbird
 public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
     public init() {}
 
-    class CompressWriter: ResponseBodyWriter {
+    class CompressedBodyWriter: ResponseBodyWriter {
         let parentWriter: any ResponseBodyWriter
         let context: Context
         let compressor: NIOCompressor
         var lastBuffer: ByteBuffer?
 
-        init(parent: any ResponseBodyWriter, context: Context, compressor: NIOCompressor) {
+        init(parent: any ResponseBodyWriter, context: Context, compressor: NIOCompressor) throws {
             self.parentWriter = parent
             self.context = context
             self.compressor = compressor
             self.lastBuffer = nil
+            try compressor.startStream()
         }
 
         deinit {
@@ -40,7 +41,30 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
             try await buffer.compressStream(with: self.compressor, flush: .sync) { buffer in
                 try await self.parentWriter.write(buffer)
             }
+            // need to store the last buffer so it can be finished once the writer is done
             self.lastBuffer = buffer
+        }
+
+        func finish() async throws {
+            // The last buffer must be finished
+            if var lastBuffer {
+                var window = self.compressor.window!
+                // keep finishing stream until we don't get a buffer overflow
+                while true {
+                    do {
+                        try lastBuffer.compressStream(to: &window, with: self.compressor, flush: .finish)
+                        try await self.parentWriter.write(window)
+                        window.moveReaderIndex(to: 0)
+                        window.moveWriterIndex(to: 0)
+                        break
+                    } catch let error as CompressNIOError where error == .bufferOverflow {
+                        try await self.parentWriter.write(window)
+                        window.moveReaderIndex(to: 0)
+                        window.moveWriterIndex(to: 0)
+                    }
+                }
+            }
+            self.lastBuffer = nil
         }
     }
 
@@ -51,29 +75,13 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
         do {
             let response = try await next(request, context)
             var editedResponse = response
-            try compressor.startStream()
             editedResponse.body = .withTrailingHeaders { writer in
-                let compressWriter = CompressWriter(parent: writer, context: context, compressor: compressor)
+                let compressWriter = try CompressedBodyWriter(parent: writer, context: context, compressor: compressor)
+                // write buffers to compressed body writer. This will in affect write compressed buffers to
+                // the parent writer
                 let tailHeaders = try await response.body.write(compressWriter)
-                if var lastBuffer = compressWriter.lastBuffer {
-                    var window = compressor.window!
-                    while true {
-                        do {
-                            try lastBuffer.compressStream(to: &window, with: compressor, flush: .finish)
-                            break
-                        } catch let error as CompressNIOError where error == .bufferOverflow {
-                            try await writer.write(window)
-                            window.moveReaderIndex(to: 0)
-                            window.moveWriterIndex(to: 0)
-                        }
-                    }
-                    if window.readableBytes > 0 {
-                        try await writer.write(window)
-                        window.moveReaderIndex(to: 0)
-                        window.moveWriterIndex(to: 0)
-                    }
-                }
-
+                // The last buffer must be finished
+                try await compressWriter.finish()
                 return tailHeaders
             }
             return editedResponse

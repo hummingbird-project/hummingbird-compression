@@ -109,7 +109,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
     func testDecompressRequest() async throws {
         let router = Router()
-        router.middlewares.add(HBRequestDecompressionMiddleware())
+        router.middlewares.add(RequestDecompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
             let body = try await request.body.collect(upTo: .max)
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
@@ -127,7 +127,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
     func testDecompressRequestStream() async throws {
         let router = Router()
-        router.middlewares.add(HBRequestDecompressionMiddleware())
+        router.middlewares.add(RequestDecompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
             return .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
         }
@@ -148,7 +148,7 @@ class HummingBirdCompressionTests: XCTestCase {
             return try b.compress(with: .gzip())
         }
         let router = Router()
-        router.middlewares.add(HBRequestDecompressionMiddleware())
+        router.middlewares.add(RequestDecompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
             let body = try await request.body.collect(upTo: .max)
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
@@ -174,7 +174,7 @@ class HummingBirdCompressionTests: XCTestCase {
             return try b.compress(with: .gzip())
         }
         let router = Router()
-        router.middlewares.add(HBRequestDecompressionMiddleware())
+        router.middlewares.add(RequestDecompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
             let body = try await request.body.collect(upTo: .max)
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
@@ -199,7 +199,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
     func testNoCompression() async throws {
         let router = Router()
-        router.middlewares.add(HBRequestDecompressionMiddleware())
+        router.middlewares.add(RequestDecompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
             let body = try await request.body.collect(upTo: .max)
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
@@ -209,6 +209,36 @@ class HummingBirdCompressionTests: XCTestCase {
             let testBuffer = self.randomBuffer(size: 261_335)
             try await client.execute(uri: "/echo", method: .post, body: testBuffer) { response in
                 XCTAssertEqual(response.body, testBuffer)
+            }
+        }
+    }
+
+    func testDecompressRequestCompressResponse() async throws {
+        @Sendable func compress(_ buffer: ByteBuffer) throws -> ByteBuffer {
+            var b = buffer
+            return try b.compress(with: .gzip())
+        }
+        let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
+        let compressedBuffer = try compress(testBuffer)
+        let router = Router()
+        router.middlewares.add(RequestDecompressionMiddleware())
+        router.middlewares.add(ResponseCompressionMiddleware())
+        router.post("/echo") { request, _ -> Response in
+            let body = try await request.body.collect(upTo: .max)
+            XCTAssertEqual(testBuffer, body)
+            return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
+        }
+        let app = Application(router: router)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/echo",
+                method: .post,
+                headers: [.acceptEncoding: "gzip", .contentEncoding: "gzip"],
+                body: compressedBuffer
+            ) { response in
+                var body = response.body
+                let uncompressed = try body.decompress(with: .gzip())
+                XCTAssertEqual(uncompressed, testBuffer)
             }
         }
     }
