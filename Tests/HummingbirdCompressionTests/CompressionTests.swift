@@ -27,97 +27,85 @@ class HummingBirdCompressionTests: XCTestCase {
         return ByteBufferAllocator().buffer(bytes: data)
     }
 
-    /*
-     func testCompressResponse() throws {
-         let app = HBApplication(testing: .live)
-         app.router.get("/echo") { request -> HBResponse in
-             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
-             return .init(status: .ok, headers: [:], body: body)
-         }
-         app.addResponseCompression(execute: .onThreadPool(threshold: 32000))
-         try app.XCTStart()
-         defer { app.XCTStop() }
+    func testCompressResponse() async throws {
+        let router = Router()
+        router.middlewares.add(ResponseCompressionMiddleware())
+        router.post("/echo") { request, _ -> Response in
+            return .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
+        }
+        let app = Application(router: router)
+        try await app.test(.router) { client in
+            let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
+            try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
+                var body = response.body
+                let uncompressed = try body.decompress(with: .gzip())
+                XCTAssertEqual(uncompressed, testBuffer)
+            }
+        }
+    }
 
-         let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
-         try app.XCTExecute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: testBuffer) { response in
-             var body = response.body
-             let uncompressed = try body?.decompress(with: .gzip())
-             XCTAssertEqual(uncompressed, testBuffer)
-         }
-     }
+    func testCompressDoubleResponse() async throws {
+        let router = Router()
+        router.middlewares.add(ResponseCompressionMiddleware())
+        router.post("/echo") { request, _ -> Response in
+            return .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
+        }
+        let app = Application(router: router)
+        let buffer = self.randomBuffer(size: 512_000)
+        try await app.test(.router) { client in
+            let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))
+            try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
+                var body = response.body
+                let uncompressed = try body.decompress(with: .gzip())
+                XCTAssertEqual(uncompressed, testBuffer)
+            }
+            let testBuffer2 = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))
+            try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer2) { response in
+                var body = response.body
+                let uncompressed = try body.decompress(with: .gzip())
+                XCTAssertEqual(uncompressed, testBuffer2)
+            }
+        }
+    }
 
-     func testCompressResponseWithoutThreadPool() throws {
-         let app = HBApplication(testing: .live, configuration: .init(enableHttpPipelining: false))
-         app.router.get("/echo") { request -> HBResponse in
-             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
-             return .init(status: .ok, headers: [:], body: body)
-         }
-         app.addResponseCompression(execute: .onEventLoop)
-         try app.XCTStart()
-         defer { app.XCTStop() }
-
-         let testBuffer = self.randomBuffer(size: 261_335)
-         try app.XCTExecute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: testBuffer) { response in
-             var body = response.body
-             let uncompressed = try body?.decompress(with: .gzip())
-             XCTAssertEqual(uncompressed, testBuffer)
-         }
-     }
-
-     func testMultipleCompressResponse() throws {
-         let app = HBApplication(testing: .live)
-         app.router.get("/echo") { request -> HBResponse in
-             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
-             return .init(status: .ok, headers: [:], body: body)
-         }
-         app.addResponseCompression(execute: .onThreadPool(threshold: 64000))
-         app.middleware.add(HBLogRequestsMiddleware(.info))
-         try app.XCTStart()
-         defer { app.XCTStop() }
-
-         let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...256_000)) }
-         let futures: [EventLoopFuture<Void>] = buffers.map { buffer in
-             if Bool.random() == true {
-                 return app.xct.execute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: buffer).flatMapThrowing { response in
-                     var body = try XCTUnwrap(response.body)
-                     let uncompressed = try body.decompress(with: .gzip())
-                     XCTAssertEqual(uncompressed, buffer)
-                 }
-             } else {
-                 return app.xct.execute(uri: "/echo", method: .GET, headers: [:], body: buffer).map { response in
-                     XCTAssertEqual(response.body, buffer)
-                 }
-             }
-         }
-         XCTAssertNoThrow(try EventLoopFuture.whenAllComplete(futures, on: app.eventLoopGroup.next()).wait())
-     }
-
-     func testMultipleCompressResponseWithoutThreadPool() throws {
-         let app = HBApplication(testing: .live, configuration: .init(enableHttpPipelining: false))
-         app.router.get("/echo") { request -> HBResponse in
-             let body: HBResponseBody = request.body.buffer.map { .byteBuffer($0) } ?? .empty
-             return .init(status: .ok, headers: [:], body: body)
-         }
-         app.addResponseCompression(execute: .onEventLoop)
-         try app.XCTStart()
-         defer { app.XCTStop() }
-
-         let buffers = (0..<32).map { _ in self.randomBuffer(size: Int.random(in: 16...512_000)) }
-         let futures: [EventLoopFuture<Void>] = buffers.map { buffer in
-             if Bool.random() == true {
-                 return app.xct.execute(uri: "/echo", method: .GET, headers: ["accept-encoding": "gzip"], body: buffer).flatMapThrowing { response in
-                     var body = try XCTUnwrap(response.body)
-                     let uncompressed = try body.decompress(with: .gzip())
-                     XCTAssertEqual(uncompressed, buffer)
-                 }
-             } else {
-                 return app.xct.execute(uri: "/echo", method: .GET, headers: [:], body: buffer).map { response in
-                     XCTAssertEqual(response.body, buffer)
-                 }
-             }
-         }
-         XCTAssertNoThrow(try EventLoopFuture.whenAllComplete(futures, on: app.eventLoopGroup.next()).wait())
-     }*/
+    func testMultipleCompressResponse() async throws {
+        let router = Router()
+        router.middlewares.add(ResponseCompressionMiddleware())
+        router.post("/echo") { request, _ -> Response in
+            let body = try await request.body.collect(upTo: .max)
+            return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
+        }
+        let app = Application(router: router)
+        let buffer = self.randomBuffer(size: 512_000)
+        try await app.test(.router) { client in
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for _ in 0..<32 {
+                    if Bool.random() == true {
+                        group.addTask {
+                            try await app.test(.router) { client in
+                                let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))
+                                try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
+                                    var body = response.body
+                                    let uncompressed = try body.decompress(with: .gzip())
+                                    XCTAssertEqual(uncompressed, testBuffer)
+                                }
+                            }
+                        }
+                    } else {
+                        group.addTask {
+                            try await app.test(.router) { client in
+                                let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))
+                                try await client.execute(uri: "/echo", method: .post, body: testBuffer) { response in
+                                    XCTAssertEqual(response.body, testBuffer)
+                                }
+                            }
+                        }
+                    }
+                }
+                try await group.waitForAll()
+            }
+        }
+    }
 
     func testDecompressRequest() async throws {
         let router = Router()
@@ -192,14 +180,15 @@ class HummingBirdCompressionTests: XCTestCase {
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
         }
         let app = Application(router: router)
+        let buffer = self.randomBuffer(size: 512_000)
         try await app.test(.router) { client in
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for _ in 0..<16 {
                     group.addTask {
-                        let buffer = self.randomBuffer(size: 256_000)
-                        let compressedBuffer = try compress(buffer)
+                        let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))!
+                        let compressedBuffer = try compress(testBuffer)
                         try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer) { response in
-                            XCTAssertEqual(response.body, buffer)
+                            XCTAssertEqual(response.body, testBuffer)
                         }
                     }
                 }
