@@ -21,7 +21,7 @@ public struct RequestDecompressionMiddleware<Context: BaseRequestContext>: Route
 
     /// Initialize RequestDecompressionMiddleware
     /// - Parameter windowSize: Decompression window size
-    public init(windowSize: Int = 65536) {
+    public init(windowSize: Int = 32768) {
         self.windowSize = windowSize
     }
 
