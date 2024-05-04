@@ -16,7 +16,22 @@ import CompressNIO
 import Hummingbird
 
 public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
-    public init() {}
+    /// compression window size
+    let windowSize: Int
+    /// minimum size of response body to compress
+    let minimumResponseSizeToCompress: Int
+
+    /// Initialize ResponseCompressionMiddleware
+    /// - Parameters:
+    ///   - windowSize: Compression window size
+    ///   - minimumResponseSizeToCompress: Minimum size of response before applying compression
+    public init(
+        windowSize: Int = 65536,
+        minimumResponseSizeToCompress: Int = 1024
+    ) {
+        self.windowSize = windowSize
+        self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
+    }
 
     // ResponseBodyWriter that writes a compressed version of the response to a parent writer
     class CompressedBodyWriter: ResponseBodyWriter {
@@ -25,11 +40,11 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
         let compressor: NIOCompressor
         var lastBuffer: ByteBuffer?
 
-        init(parent: any ResponseBodyWriter, context: Context, algorithm: CompressionAlgorithm) throws {
+        init(parent: any ResponseBodyWriter, context: Context, algorithm: CompressionAlgorithm, windowSize: Int) throws {
             self.parentWriter = parent
             self.context = context
             self.compressor = algorithm.compressor
-            self.compressor.window = context.allocator.buffer(capacity: 64 * 1024)
+            self.compressor.window = context.allocator.buffer(capacity: windowSize)
             self.lastBuffer = nil
             try self.compressor.startStream()
         }
@@ -73,28 +88,36 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
     }
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
-        guard let (algorithm, name) = self.compressionAlgorithm(from: request.headers[values: .acceptEncoding]) else {
-            return try await next(request, context)
-        }
-        do {
-            let response = try await next(request, context)
-            var editedResponse = response
-            editedResponse.headers[values: .contentEncoding].append(name)
-            editedResponse.headers[.contentLength] = nil
-            editedResponse.headers[.transferEncoding] = "chunked"
-            editedResponse.body = .withTrailingHeaders { writer in
-                let compressWriter = try CompressedBodyWriter(parent: writer, context: context, algorithm: algorithm)
-                // write buffers to compressed body writer. This will in affect write compressed buffers to
-                // the parent writer
-                let tailHeaders = try await response.body.write(compressWriter)
-                // The last buffer must be finished
-                try await compressWriter.finish()
-                return tailHeaders
+        let response = try await next(request, context)
+        // if content length is less than the minimum content length require before compression is applied then
+        // just return the response now
+        if let contentLength = response.body.contentLength {
+            guard contentLength > self.minimumResponseSizeToCompress else {
+                return response
             }
-            return editedResponse
-        } catch {
-            throw HTTPError(.internalServerError)
         }
+        guard let (algorithm, name) = self.compressionAlgorithm(from: request.headers[values: .acceptEncoding]) else {
+            return response
+        }
+        var editedResponse = response
+        editedResponse.headers[values: .contentEncoding].append(name)
+        editedResponse.headers[.contentLength] = nil
+        editedResponse.headers[.transferEncoding] = "chunked"
+        editedResponse.body = .withTrailingHeaders { writer in
+            let compressWriter = try CompressedBodyWriter(
+                parent: writer,
+                context: context,
+                algorithm: algorithm,
+                windowSize: self.windowSize
+            )
+            // write buffers to compressed body writer. This will in affect write compressed buffers to
+            // the parent writer
+            let tailHeaders = try await response.body.write(compressWriter)
+            // The last buffer must be finished
+            try await compressWriter.finish()
+            return tailHeaders
+        }
+        return editedResponse
     }
 
     /// Given a header value, extracts the q value if there is one present. If one is not present,

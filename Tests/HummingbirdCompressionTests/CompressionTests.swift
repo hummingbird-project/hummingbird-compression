@@ -37,11 +37,11 @@ class HummingBirdCompressionTests: XCTestCase {
         try await app.test(.router) { client in
             let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
             try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
+                XCTAssertEqual(response.headers[.contentEncoding], "gzip")
+                XCTAssertEqual(response.headers[.transferEncoding], "chunked")
                 var body = response.body
                 let uncompressed = try body.decompress(with: .gzip())
                 XCTAssertEqual(uncompressed, testBuffer)
-                XCTAssertEqual(response.headers[.contentEncoding], "gzip")
-                XCTAssertEqual(response.headers[.transferEncoding], "chunked")
             }
         }
     }
@@ -72,7 +72,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
     func testMultipleCompressResponse() async throws {
         let router = Router()
-        router.middlewares.add(ResponseCompressionMiddleware())
+        router.middlewares.add(ResponseCompressionMiddleware(windowSize: 16384))
         router.post("/echo") { request, _ -> Response in
             let body = try await request.body.collect(upTo: .max)
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
@@ -105,6 +105,23 @@ class HummingBirdCompressionTests: XCTestCase {
                     }
                 }
                 try await group.waitForAll()
+            }
+        }
+    }
+
+    func testCompressMinimumResponseSize() async throws {
+        let router = Router()
+        router.middlewares.add(ResponseCompressionMiddleware(minimumResponseSizeToCompress: 1024))
+        router.post("/echo") { request, _ -> Response in
+            let body = try await request.body.collect(upTo: .max)
+            return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
+        }
+        let app = Application(router: router)
+        try await app.test(.router) { client in
+            let testBuffer = self.randomBuffer(size: 512)
+            try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
+                XCTAssertNotEqual(response.headers[.contentEncoding], "gzip")
+                XCTAssertEqual(response.body, testBuffer)
             }
         }
     }

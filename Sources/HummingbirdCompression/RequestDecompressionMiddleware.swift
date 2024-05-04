@@ -16,12 +16,23 @@ import CompressNIO
 import Hummingbird
 
 public struct RequestDecompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
-    public init() {}
+    /// decompression window size
+    let windowSize: Int
+
+    /// Initialize RequestDecompressionMiddleware
+    /// - Parameter windowSize: Decompression window size
+    public init(windowSize: Int = 65536) {
+        self.windowSize = windowSize
+    }
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
         if let algorithm = algorithm(from: request.headers[values: .contentEncoding]) {
             var request = request
-            request.body = .init(asyncSequence: DecompressByteBufferSequence(base: request.body, algorithm: algorithm))
+            request.body = .init(asyncSequence: DecompressByteBufferSequence(
+                base: request.body,
+                algorithm: algorithm,
+                windowSize: self.windowSize
+            ))
             let response = try await next(request, context)
             return response
         } else {
@@ -45,11 +56,13 @@ public struct RequestDecompressionMiddleware<Context: BaseRequestContext>: Route
     }
 }
 
+/// AsyncSequence of decompressed ByteBuffers
 struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequence, Sendable where Base.Element == ByteBuffer {
     typealias Element = ByteBuffer
 
     let base: Base
     let algorithm: CompressionAlgorithm
+    let windowSize: Int
 
     class AsyncIterator: AsyncIteratorProtocol {
         var baseIterator: Base.AsyncIterator
@@ -57,10 +70,10 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
         var currentBuffer: ByteBuffer?
         var window: ByteBuffer
 
-        init(baseIterator: Base.AsyncIterator, algorithm: CompressionAlgorithm) {
+        init(baseIterator: Base.AsyncIterator, algorithm: CompressionAlgorithm, windowSize: Int) {
             self.baseIterator = baseIterator
             self.decompressor = algorithm.decompressor
-            self.window = ByteBufferAllocator().buffer(capacity: 64 * 1024)
+            self.window = ByteBufferAllocator().buffer(capacity: windowSize)
             self.currentBuffer = nil
             try! self.decompressor.startStream()
         }
@@ -93,6 +106,6 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
     }
 
     func makeAsyncIterator() -> AsyncIterator {
-        .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm)
+        .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm, windowSize: self.windowSize)
     }
 }
