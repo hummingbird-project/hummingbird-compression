@@ -18,24 +18,27 @@ import Hummingbird
 public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
     public init() {}
 
+    // ResponseBodyWriter that writes a compressed version of the response to a parent writer
     class CompressedBodyWriter: ResponseBodyWriter {
         let parentWriter: any ResponseBodyWriter
         let context: Context
         let compressor: NIOCompressor
         var lastBuffer: ByteBuffer?
 
-        init(parent: any ResponseBodyWriter, context: Context, compressor: NIOCompressor) throws {
+        init(parent: any ResponseBodyWriter, context: Context, algorithm: CompressionAlgorithm) throws {
             self.parentWriter = parent
             self.context = context
-            self.compressor = compressor
+            self.compressor = algorithm.compressor
+            self.compressor.window = context.allocator.buffer(capacity: 64 * 1024)
             self.lastBuffer = nil
-            try compressor.startStream()
+            try self.compressor.startStream()
         }
 
         deinit {
             try! self.compressor.finishStream()
         }
 
+        /// Write response buffer
         func write(_ buffer: ByteBuffer) async throws {
             var buffer = buffer
             try await buffer.compressStream(with: self.compressor, flush: .sync) { buffer in
@@ -45,6 +48,7 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
             self.lastBuffer = buffer
         }
 
+        /// Finish compressed response writing
         func finish() async throws {
             // The last buffer must be finished
             if var lastBuffer {
@@ -69,14 +73,17 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
     }
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
-        guard let compressor = self.compressor(from: request.headers[values: .acceptEncoding], context: context) else {
+        guard let (algorithm, name) = self.compressionAlgorithm(from: request.headers[values: .acceptEncoding]) else {
             return try await next(request, context)
         }
         do {
             let response = try await next(request, context)
             var editedResponse = response
+            editedResponse.headers[values: .contentEncoding].append(name)
+            editedResponse.headers[.contentLength] = nil
+            editedResponse.headers[.transferEncoding] = "chunked"
             editedResponse.body = .withTrailingHeaders { writer in
-                let compressWriter = try CompressedBodyWriter(parent: writer, context: context, compressor: compressor)
+                let compressWriter = try CompressedBodyWriter(parent: writer, context: context, algorithm: algorithm)
                 // write buffers to compressed body writer. This will in affect write compressed buffers to
                 // the parent writer
                 let tailHeaders = try await response.body.write(compressWriter)
@@ -90,22 +97,51 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
         }
     }
 
-    /// Determines the compression algorithm based off content encoding header.
-    private func compressor(from contentEncodingHeaders: [String], context: Context) -> NIOCompressor? {
-        for encoding in contentEncodingHeaders {
-            switch encoding {
-            case "gzip":
-                let compressor = CompressionAlgorithm.gzip().compressor
-                compressor.window = context.allocator.buffer(capacity: 64 * 1024)
-                return compressor
-            case "deflate":
-                let compressor = CompressionAlgorithm.zlib().compressor
-                compressor.window = context.allocator.buffer(capacity: 64 * 1024)
-                return compressor
-            default:
-                break
+    /// Given a header value, extracts the q value if there is one present. If one is not present,
+    /// returns the default q value, 1.0.
+    private func qValueFromHeader<S: StringProtocol>(_ text: S) -> Float {
+        let headerParts = text.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+        guard headerParts.count > 1 && headerParts[1].count > 0 else {
+            return 1
+        }
+
+        // We have a Q value.
+        let qValue = Float(headerParts[1].split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)[1]) ?? 0
+        if qValue < 0 || qValue > 1 || qValue.isNaN {
+            return 0
+        }
+        return qValue
+    }
+
+    /// Determines the compression algorithm to use for the next response.
+    private func compressionAlgorithm<S: StringProtocol>(from acceptContentHeaders: [S]) -> (compressor: CompressionAlgorithm, name: String)? {
+        var gzipQValue: Float = -1
+        var deflateQValue: Float = -1
+        var anyQValue: Float = -1
+
+        for acceptHeader in acceptContentHeaders {
+            if acceptHeader.hasPrefix("gzip") || acceptHeader.hasPrefix("x-gzip") {
+                gzipQValue = self.qValueFromHeader(acceptHeader)
+            } else if acceptHeader.hasPrefix("deflate") {
+                deflateQValue = self.qValueFromHeader(acceptHeader)
+            } else if acceptHeader.hasPrefix("*") {
+                anyQValue = self.qValueFromHeader(acceptHeader)
             }
         }
+
+        if gzipQValue > 0 || deflateQValue > 0 {
+            if gzipQValue > deflateQValue {
+                return (compressor: CompressionAlgorithm.gzip(), name: "gzip")
+            } else {
+                return (compressor: CompressionAlgorithm.zlib(), name: "deflate")
+            }
+        } else if anyQValue > 0 {
+            // Though gzip is usually less well compressed than deflate, it has slightly
+            // wider support because it's unabiguous. We therefore default to that unless
+            // the client has expressed a preference.
+            return (compressor: CompressionAlgorithm.gzip(), name: "gzip")
+        }
+
         return nil
     }
 }

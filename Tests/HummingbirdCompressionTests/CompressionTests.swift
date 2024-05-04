@@ -40,6 +40,8 @@ class HummingBirdCompressionTests: XCTestCase {
                 var body = response.body
                 let uncompressed = try body.decompress(with: .gzip())
                 XCTAssertEqual(uncompressed, testBuffer)
+                XCTAssertEqual(response.headers[.contentEncoding], "gzip")
+                XCTAssertEqual(response.headers[.transferEncoding], "chunked")
             }
         }
     }
