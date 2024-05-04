@@ -10,8 +10,8 @@ let package = Package(
         .library(name: "HummingbirdCompression", targets: ["HummingbirdCompression"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0-alpha.2"),
-        .package(url: "https://github.com/adam-fowler/compress-nio.git", from: "1.0.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", branch: "main"),
+        .package(url: "https://github.com/adam-fowler/compress-nio.git", branch: "main"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.32.1"),
     ],
     targets: [
@@ -22,7 +22,7 @@ let package = Package(
         ]),
         .testTarget(name: "HummingbirdCompressionTests", dependencies: [
             .byName(name: "HummingbirdCompression"),
-            .product(name: "HummingbirdXCT", package: "hummingbird"),
+            .product(name: "HummingbirdTesting", package: "hummingbird"),
         ]),
     ]
 )

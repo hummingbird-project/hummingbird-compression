@@ -15,52 +15,84 @@
 import CompressNIO
 import Hummingbird
 
-public struct HBRequestDecompressionMiddleware<Context: HBBaseRequestContext>: HBMiddlewareProtocol {
+public struct HBRequestDecompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
     public init() {}
-    
-    public func handle(_ request: HBRequest, context: Context, next: (HBRequest, Context) async throws -> HBResponse) async throws -> HBResponse {
-        guard let decompressor = self.decompressor(from: request.headers[values: .contentEncoding], context: context) else {
-            return try await next(request, context)
-        }
-        do {
-            try decompressor.startStream()
-        } catch {
-            throw HBHTTPError(.internalServerError)
-        }
-        return try await withThrowingTaskGroup(of: Void.self) { group in
-            let (stream, source) = HBRequestBody.makeStream()
-            var compressedRequest = request
-            compressedRequest.body = stream
-            group.addTask {
-                for try await var buffer in request.body {
-                    try await buffer.decompressStream(with: decompressor) { buffer in
-                        try await source.yield(buffer)
-                    }
-                }
-                try decompressor.finishStream()
-                source.finish()
-            }
-            let response = try await next(compressedRequest, context)
+
+    public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
+        if let algorithm = algorithm(from: request.headers[values: .contentEncoding]) {
+            var request = request
+            request.body = .init(asyncSequence: DecompressByteBufferSequence(base: request.body, algorithm: algorithm))
+            let response = try await next(request, context)
             return response
+        } else {
+            return try await next(request, context)
         }
     }
 
     /// Determines the decompression algorithm based off content encoding header.
-    private func decompressor(from contentEncodingHeaders: [String], context: Context) -> NIODecompressor? {
+    private func algorithm(from contentEncodingHeaders: [String]) -> CompressionAlgorithm? {
         for encoding in contentEncodingHeaders {
             switch encoding {
             case "gzip":
-                let decompressor = CompressionAlgorithm.gzip().decompressor
-                decompressor.window = context.allocator.buffer(capacity: 64*1024)
-                return decompressor
+                return CompressionAlgorithm.gzip()
             case "deflate":
-                let decompressor = CompressionAlgorithm.zlib().decompressor
-                decompressor.window = context.allocator.buffer(capacity: 64*1024)
-                return decompressor
+                return CompressionAlgorithm.zlib()
             default:
                 break
             }
         }
         return nil
+    }
+}
+
+struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequence, Sendable where Base.Element == ByteBuffer {
+    typealias Element = ByteBuffer
+
+    let base: Base
+    let algorithm: CompressionAlgorithm
+
+    class AsyncIterator: AsyncIteratorProtocol {
+        var baseIterator: Base.AsyncIterator
+        let decompressor: NIODecompressor
+        var currentBuffer: ByteBuffer?
+        var window: ByteBuffer
+
+        init(baseIterator: Base.AsyncIterator, algorithm: CompressionAlgorithm) {
+            self.baseIterator = baseIterator
+            self.decompressor = algorithm.decompressor
+            self.window = ByteBufferAllocator().buffer(capacity: 64 * 1024)
+            self.currentBuffer = nil
+            try! self.decompressor.startStream()
+        }
+
+        deinit {
+            try! self.decompressor.finishStream()
+        }
+
+        func next() async throws -> ByteBuffer? {
+            if self.currentBuffer == nil {
+                self.currentBuffer = try await self.baseIterator.next()
+            }
+            self.window.moveReaderIndex(to: 0)
+            self.window.moveWriterIndex(to: 0)
+            while var buffer = self.currentBuffer {
+                do {
+                    try buffer.decompressStream(to: &self.window, with: self.decompressor)
+                } catch let error as CompressNIOError where error == .bufferOverflow {
+                    self.currentBuffer = buffer
+                    return self.window
+                } catch let error as CompressNIOError where error == .inputBufferOverflow {
+                    // can ignore CompressNIOError.inputBufferOverflow errors here
+                }
+
+                self.currentBuffer = try await self.baseIterator.next()
+            }
+            self.currentBuffer = nil
+            return self.window.readableBytes > 0 ? self.window : nil
+        }
+    }
+
+    func makeAsyncIterator() -> AsyncIterator {
+        .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm)
     }
 }
