@@ -197,8 +197,8 @@ class HummingBirdCompressionTests: XCTestCase {
         try await app.test(.router) { client in
             let testBuffer = self.randomBuffer(size: 245_355)
             var testBufferCopy = testBuffer
-            let compressedBuffer = try testBufferCopy.compress(with: .gzip())
-            try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer) { response in
+            let compressedBuffer = try testBufferCopy.compress(with: .zlib())
+            try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "deflate"], body: compressedBuffer) { response in
                 XCTAssertEqual(response.body, testBuffer)
             }
         }
@@ -278,7 +278,7 @@ class HummingBirdCompressionTests: XCTestCase {
     func testDecompressRequestCompressResponse() async throws {
         @Sendable func compress(_ buffer: ByteBuffer) throws -> ByteBuffer {
             var b = buffer
-            return try b.compress(with: .gzip())
+            return try b.compress(with: .zlib())
         }
         let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
         let compressedBuffer = try compress(testBuffer)
@@ -295,11 +295,11 @@ class HummingBirdCompressionTests: XCTestCase {
             try await client.execute(
                 uri: "/echo",
                 method: .post,
-                headers: [.acceptEncoding: "gzip", .contentEncoding: "gzip"],
+                headers: [.acceptEncoding: "deflate", .contentEncoding: "deflate"],
                 body: compressedBuffer
             ) { response in
                 var body = response.body
-                let uncompressed = try body.decompress(with: .gzip())
+                let uncompressed = try body.decompress(with: .zlib())
                 XCTAssertEqual(uncompressed, testBuffer)
             }
         }
