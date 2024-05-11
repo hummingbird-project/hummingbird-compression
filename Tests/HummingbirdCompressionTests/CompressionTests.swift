@@ -291,6 +291,24 @@ class HummingBirdCompressionTests: XCTestCase {
         }
     }
 
+    func testBadData2() async throws {
+        let router = Router()
+        router.middlewares.add(RequestDecompressionMiddleware())
+        router.post("/echo") { request, _ -> Response in
+            let body = try await request.body.collect(upTo: .max)
+            return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
+        }
+        let app = Application(router: router)
+        try await app.test(.router) { client in
+            var testBuffer = self.randomBuffer(size: 261_335)
+            var compressedBuffer = try testBuffer.compress(with: .gzip())
+            compressedBuffer.setBytes([UInt8(80)], at: compressedBuffer.writerIndex - 1)
+            try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer) { response in
+                XCTAssertEqual(response.status, .badRequest)
+            }
+        }
+    }
+
     func testWrongContentEncoding() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())
