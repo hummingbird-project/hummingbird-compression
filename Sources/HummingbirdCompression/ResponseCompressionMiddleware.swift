@@ -66,20 +66,17 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
         /// Finish compressed response writing
         func finish() async throws {
             // The last buffer must be finished
-            if var lastBuffer {
-                var window = self.compressor.window!
+            if var lastBuffer, var window = self.compressor.window {
                 // keep finishing stream until we don't get a buffer overflow
                 while true {
                     do {
                         try lastBuffer.compressStream(to: &window, with: self.compressor, flush: .finish)
                         try await self.parentWriter.write(window)
-                        window.moveReaderIndex(to: 0)
-                        window.moveWriterIndex(to: 0)
+                        window.clear()
                         break
                     } catch let error as CompressNIOError where error == .bufferOverflow {
                         try await self.parentWriter.write(window)
-                        window.moveReaderIndex(to: 0)
-                        window.moveWriterIndex(to: 0)
+                        window.clear()
                     }
                 }
             }

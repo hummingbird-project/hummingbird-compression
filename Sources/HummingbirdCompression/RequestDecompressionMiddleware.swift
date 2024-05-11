@@ -86,8 +86,7 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
             if self.currentBuffer == nil {
                 self.currentBuffer = try await self.baseIterator.next()
             }
-            self.window.moveReaderIndex(to: 0)
-            self.window.moveWriterIndex(to: 0)
+            self.window.clear()
             while var buffer = self.currentBuffer {
                 do {
                     try buffer.decompressStream(to: &self.window, with: self.decompressor)
