@@ -83,24 +83,31 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
         }
 
         func next() async throws -> ByteBuffer? {
-            if self.currentBuffer == nil {
-                self.currentBuffer = try await self.baseIterator.next()
-            }
-            self.window.clear()
-            while var buffer = self.currentBuffer {
-                do {
-                    try buffer.decompressStream(to: &self.window, with: self.decompressor)
-                } catch let error as CompressNIOError where error == .bufferOverflow {
-                    self.currentBuffer = buffer
-                    return self.window
-                } catch let error as CompressNIOError where error == .inputBufferOverflow {
-                    // can ignore CompressNIOError.inputBufferOverflow errors here
+            do {
+                if self.currentBuffer == nil {
+                    self.currentBuffer = try await self.baseIterator.next()
                 }
+                self.window.clear()
+                while var buffer = self.currentBuffer {
+                    do {
+                        try buffer.decompressStream(to: &self.window, with: self.decompressor)
+                    } catch let error as CompressNIOError where error == .bufferOverflow {
+                        self.currentBuffer = buffer
+                        return self.window
+                    } catch let error as CompressNIOError where error == .inputBufferOverflow {
+                        // can ignore CompressNIOError.inputBufferOverflow errors here
+                    }
 
-                self.currentBuffer = try await self.baseIterator.next()
+                    self.currentBuffer = try await self.baseIterator.next()
+                }
+                self.currentBuffer = nil
+                return self.window.readableBytes > 0 ? self.window : nil
+            } catch let error as CompressNIOError where error == .corruptData {
+                throw HTTPError(.badRequest, message: "Corrupt compression data.")
+            } catch {
+                print("\(error)")
+                throw HTTPError(.badRequest, message: "Data decompression failed.")
             }
-            self.currentBuffer = nil
-            return self.window.readableBytes > 0 ? self.window : nil
         }
     }
 

@@ -275,6 +275,39 @@ class HummingBirdCompressionTests: XCTestCase {
         }
     }
 
+    func testBadData() async throws {
+        let router = Router()
+        router.middlewares.add(RequestDecompressionMiddleware())
+        router.post("/echo") { request, _ -> Response in
+            let body = try await request.body.collect(upTo: .max)
+            return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
+        }
+        let app = Application(router: router)
+        try await app.test(.router) { client in
+            let testBuffer = self.randomBuffer(size: 261_335)
+            try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: testBuffer) { response in
+                XCTAssertEqual(response.status, .badRequest)
+            }
+        }
+    }
+
+    func testWrongContentEncoding() async throws {
+        let router = Router()
+        router.middlewares.add(RequestDecompressionMiddleware())
+        router.post("/echo") { request, _ -> Response in
+            let body = try await request.body.collect(upTo: .max)
+            return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
+        }
+        let app = Application(router: router)
+        try await app.test(.router) { client in
+            var testBuffer = self.randomBuffer(size: 261_335)
+            let compressedBuffer = try testBuffer.compress(with: .gzip())
+            try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "deflate"], body: compressedBuffer) { response in
+                XCTAssertEqual(response.status, .badRequest)
+            }
+        }
+    }
+
     func testDecompressRequestCompressResponse() async throws {
         @Sendable func compress(_ buffer: ByteBuffer) throws -> ByteBuffer {
             var b = buffer
