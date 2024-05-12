@@ -81,14 +81,19 @@ class HummingBirdCompressionTests: XCTestCase {
         let buffer = self.randomBuffer(size: 512_000)
         try await app.test(.router) { client in
             try await withThrowingTaskGroup(of: Void.self) { group in
-                for _ in 0..<32 {
+                for _ in 0..<1024 {
                     if Bool.random() == true {
                         group.addTask {
                             try await app.test(.router) { client in
                                 let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))
                                 try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
                                     var body = response.body
-                                    let uncompressed = try body.decompress(with: .gzip())
+                                    let uncompressed: ByteBuffer
+                                    if response.headers[.contentEncoding] == "gzip" {
+                                        uncompressed = try body.decompress(with: .gzip())
+                                    } else {
+                                        uncompressed = body
+                                    }
                                     XCTAssertEqual(uncompressed, testBuffer)
                                 }
                             }
