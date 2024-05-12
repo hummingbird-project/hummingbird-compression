@@ -14,6 +14,7 @@
 
 import CompressNIO
 import Hummingbird
+import Logging
 
 public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
     /// compression window size
@@ -39,18 +40,30 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
         let context: Context
         let compressor: NIOCompressor
         var lastBuffer: ByteBuffer?
+        let logger: Logger
 
-        init(parent: any ResponseBodyWriter, context: Context, algorithm: CompressionAlgorithm, windowSize: Int) throws {
+        init(
+            parent: any ResponseBodyWriter,
+            context: Context,
+            algorithm: CompressionAlgorithm,
+            windowSize: Int,
+            logger: Logger
+        ) throws {
             self.parentWriter = parent
             self.context = context
             self.compressor = algorithm.compressor
             self.compressor.window = context.allocator.buffer(capacity: windowSize)
             self.lastBuffer = nil
+            self.logger = logger
             try self.compressor.startStream()
         }
 
         deinit {
-            try! self.compressor.finishStream()
+            do {
+                try self.compressor.finishStream()
+            } catch {
+                logger.error("Error finalizing compression stream: \(error) ")
+            }
         }
 
         /// Write response buffer
@@ -105,7 +118,8 @@ public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: Router
                 parent: writer,
                 context: context,
                 algorithm: algorithm,
-                windowSize: self.windowSize
+                windowSize: self.windowSize,
+                logger: context.logger
             )
             // write buffers to compressed body writer. This will in affect write compressed buffers to
             // the parent writer

@@ -14,6 +14,7 @@
 
 import CompressNIO
 import Hummingbird
+import Logging
 
 public struct RequestDecompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
     /// decompression window size
@@ -31,7 +32,8 @@ public struct RequestDecompressionMiddleware<Context: BaseRequestContext>: Route
             request.body = .init(asyncSequence: DecompressByteBufferSequence(
                 base: request.body,
                 algorithm: algorithm,
-                windowSize: self.windowSize
+                windowSize: self.windowSize,
+                logger: context.logger
             ))
             let response = try await next(request, context)
             return response
@@ -63,23 +65,34 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
     let base: Base
     let algorithm: CompressionAlgorithm
     let windowSize: Int
+    let logger: Logger
 
     class AsyncIterator: AsyncIteratorProtocol {
         var baseIterator: Base.AsyncIterator
         let decompressor: NIODecompressor
         var currentBuffer: ByteBuffer?
         var window: ByteBuffer
+        let logger: Logger
 
-        init(baseIterator: Base.AsyncIterator, algorithm: CompressionAlgorithm, windowSize: Int) {
+        init(baseIterator: Base.AsyncIterator, algorithm: CompressionAlgorithm, windowSize: Int, logger: Logger) {
             self.baseIterator = baseIterator
             self.decompressor = algorithm.decompressor
             self.window = ByteBufferAllocator().buffer(capacity: windowSize)
             self.currentBuffer = nil
-            try! self.decompressor.startStream()
+            self.logger = logger
+            do {
+                try self.decompressor.startStream()
+            } catch {
+                logger.error("Error initializing decompression stream: \(error) ")
+            }
         }
 
         deinit {
-            try! self.decompressor.finishStream()
+            do {
+                try self.decompressor.finishStream()
+            } catch {
+                logger.error("Error finalizing decompression stream: \(error) ")
+            }
         }
 
         func next() async throws -> ByteBuffer? {
@@ -105,13 +118,12 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
             } catch let error as CompressNIOError where error == .corruptData {
                 throw HTTPError(.badRequest, message: "Corrupt compression data.")
             } catch {
-                print("\(error)")
                 throw HTTPError(.badRequest, message: "Data decompression failed.")
             }
         }
     }
 
     func makeAsyncIterator() -> AsyncIterator {
-        .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm, windowSize: self.windowSize)
+        .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm, windowSize: self.windowSize, logger: self.logger)
     }
 }
