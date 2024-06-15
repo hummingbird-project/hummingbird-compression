@@ -16,6 +16,10 @@ import CompressNIO
 import Hummingbird
 import Logging
 
+/// Middleware for decompressing request bodies 
+/// 
+/// if the content-encoding header is set to gzip or deflate then the middleware will attempt
+/// to decompress the contents of the request body and pass that down the middleware chain.
 public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMiddleware {
     /// decompression window size
     let windowSize: Int

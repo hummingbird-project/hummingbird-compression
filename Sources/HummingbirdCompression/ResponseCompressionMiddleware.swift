@@ -16,6 +16,11 @@ import CompressNIO
 import Hummingbird
 import Logging
 
+/// Middleware for compressing response bodies
+///
+/// If the accept-encoding header in request is set to gzip or deflate and the response body
+/// is of at least a minimum size then the middleware will return a response with a compressed
+/// version of the response body that it received.
 public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMiddleware {
     /// compression window size
     let windowSize: Int
