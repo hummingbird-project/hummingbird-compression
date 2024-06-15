@@ -16,7 +16,7 @@ import CompressNIO
 import Hummingbird
 import Logging
 
-public struct ResponseCompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
+public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMiddleware {
     /// compression window size
     let windowSize: Int
     /// minimum size of response body to compress

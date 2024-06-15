@@ -132,7 +132,7 @@ class HummingBirdCompressionTests: XCTestCase {
     }
 
     func testCompressWindowSize() async throws {
-        struct VerifyResponseBodyChunkSize<Context: BaseRequestContext>: RouterMiddleware {
+        struct VerifyResponseBodyChunkSize<Context: RequestContext>: RouterMiddleware {
             let bufferSize: Int
 
             struct Writer: ResponseBodyWriter {

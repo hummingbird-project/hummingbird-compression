@@ -16,7 +16,7 @@ import CompressNIO
 import Hummingbird
 import Logging
 
-public struct RequestDecompressionMiddleware<Context: BaseRequestContext>: RouterMiddleware {
+public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMiddleware {
     /// decompression window size
     let windowSize: Int
 
