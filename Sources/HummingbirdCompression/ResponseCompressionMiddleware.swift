@@ -138,7 +138,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
 
     /// Given a header value, extracts the q value if there is one present. If one is not present,
     /// returns the default q value, 1.0.
-    private func qValueFromHeader<S: StringProtocol>(_ text: S) -> Float {
+    private func qValueFromHeader(_ text: some StringProtocol) -> Float {
         let headerParts = text.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
         guard headerParts.count > 1 && headerParts[1].count > 0 else {
             return 1
@@ -153,7 +153,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     }
 
     /// Determines the compression algorithm to use for the next response.
-    private func compressionAlgorithm<S: StringProtocol>(from acceptContentHeaders: [S]) -> (compressor: CompressionAlgorithm, name: String)? {
+    private func compressionAlgorithm(from acceptContentHeaders: [some StringProtocol]) -> (compressor: CompressionAlgorithm, name: String)? {
         var gzipQValue: Float = -1
         var deflateQValue: Float = -1
         var anyQValue: Float = -1
