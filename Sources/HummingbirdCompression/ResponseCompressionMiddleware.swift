@@ -26,17 +26,29 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     let windowSize: Int
     /// minimum size of response body to compress
     let minimumResponseSizeToCompress: Int
+    /// Zlib configuration
+    let zlibConfiguration: ZlibConfiguration
 
     /// Initialize ResponseCompressionMiddleware
     /// - Parameters:
     ///   - windowSize: Compression window size
     ///   - minimumResponseSizeToCompress: Minimum size of response before applying compression
+    ///   - zlibCompressionLevel: zlib compression level to use. Value between 0 and 9 where 1 is fastest, 9 is best compression and
+    ///         0 is no compression.
+    ///   - zlibMemoryLevel: Amount of memory to use when compressing. Less memory will mean the compression will take longer
+    ///         and compression level will be reduced. Value between 1 - 9 where 1 is least amount of memory.
     public init(
-        windowSize: Int = 65536,
-        minimumResponseSizeToCompress: Int = 1024
+        windowSize: Int = 32768,
+        minimumResponseSizeToCompress: Int = 1024,
+        zlibCompressionLevel: Int? = nil,
+        zlibMemoryLevel: Int? = nil
     ) {
         self.windowSize = windowSize
         self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
+        self.zlibConfiguration = .init(
+            compressionLevel: numericCast(zlibCompressionLevel ?? -1), // -1 indicates use the default compression level set by the library
+            memoryLevel: numericCast(zlibMemoryLevel ?? 8) // 8 is the default value for the library
+        )
     }
 
     // ResponseBodyWriter that writes a compressed version of the response to a parent writer
@@ -170,15 +182,15 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
 
         if gzipQValue > 0 || deflateQValue > 0 {
             if gzipQValue > deflateQValue {
-                return (compressor: CompressionAlgorithm.gzip(), name: "gzip")
+                return (compressor: CompressionAlgorithm.gzip(configuration: self.zlibConfiguration), name: "gzip")
             } else {
-                return (compressor: CompressionAlgorithm.zlib(), name: "deflate")
+                return (compressor: CompressionAlgorithm.zlib(configuration: self.zlibConfiguration), name: "deflate")
             }
         } else if anyQValue > 0 {
             // Though gzip is usually less well compressed than deflate, it has slightly
             // wider support because it's unabiguous. We therefore default to that unless
             // the client has expressed a preference.
-            return (compressor: CompressionAlgorithm.gzip(), name: "gzip")
+            return (compressor: CompressionAlgorithm.gzip(configuration: self.zlibConfiguration), name: "gzip")
         }
 
         return nil
