@@ -69,7 +69,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
             self.parentWriter = parent
             self.context = context
             self.compressor = algorithm.compressor
-            self.compressor.window = context.allocator.buffer(capacity: windowSize)
+            self.compressor.window = ByteBufferAllocator().buffer(capacity: windowSize)
             self.lastBuffer = nil
             self.logger = logger
             try self.compressor.startStream()
