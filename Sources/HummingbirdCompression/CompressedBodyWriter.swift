@@ -80,7 +80,7 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: R
 }
 
 extension ResponseBodyWriter {
-    func compressed(
+    public func compressed(
         algorithm: CompressionAlgorithm,
         windowSize: Int,
         logger: Logger
