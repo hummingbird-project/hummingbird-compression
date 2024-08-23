@@ -51,69 +51,6 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         )
     }
 
-    // ResponseBodyWriter that writes a compressed version of the response to a parent writer
-    class CompressedBodyWriter: ResponseBodyWriter {
-        let parentWriter: any ResponseBodyWriter
-        let context: Context
-        let compressor: NIOCompressor
-        var lastBuffer: ByteBuffer?
-        let logger: Logger
-
-        init(
-            parent: any ResponseBodyWriter,
-            context: Context,
-            algorithm: CompressionAlgorithm,
-            windowSize: Int,
-            logger: Logger
-        ) throws {
-            self.parentWriter = parent
-            self.context = context
-            self.compressor = algorithm.compressor
-            self.compressor.window = ByteBufferAllocator().buffer(capacity: windowSize)
-            self.lastBuffer = nil
-            self.logger = logger
-            try self.compressor.startStream()
-        }
-
-        deinit {
-            do {
-                try self.compressor.finishStream()
-            } catch {
-                logger.error("Error finalizing compression stream: \(error) ")
-            }
-        }
-
-        /// Write response buffer
-        func write(_ buffer: ByteBuffer) async throws {
-            var buffer = buffer
-            try await buffer.compressStream(with: self.compressor, flush: .sync) { buffer in
-                try await self.parentWriter.write(buffer)
-            }
-            // need to store the last buffer so it can be finished once the writer is done
-            self.lastBuffer = buffer
-        }
-
-        /// Finish compressed response writing
-        func finish() async throws {
-            // The last buffer must be finished
-            if var lastBuffer, var window = self.compressor.window {
-                // keep finishing stream until we don't get a buffer overflow
-                while true {
-                    do {
-                        try lastBuffer.compressStream(to: &window, with: self.compressor, flush: .finish)
-                        try await self.parentWriter.write(window)
-                        window.clear()
-                        break
-                    } catch let error as CompressNIOError where error == .bufferOverflow {
-                        try await self.parentWriter.write(window)
-                        window.clear()
-                    }
-                }
-            }
-            self.lastBuffer = nil
-        }
-    }
-
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
         let response = try await next(request, context)
         // if content length is less than the minimum content length require before compression is applied then
@@ -130,20 +67,13 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         editedResponse.headers[values: .contentEncoding].append(name)
         editedResponse.headers[.contentLength] = nil
         editedResponse.headers[.transferEncoding] = "chunked"
-        editedResponse.body = .withTrailingHeaders { writer in
-            let compressWriter = try CompressedBodyWriter(
-                parent: writer,
-                context: context,
+        editedResponse.body = .init { writer in
+            let compressWriter = try writer.compressed(
                 algorithm: algorithm,
                 windowSize: self.windowSize,
                 logger: context.logger
             )
-            // write buffers to compressed body writer. This will in affect write compressed buffers to
-            // the parent writer
-            let tailHeaders = try await response.body.write(compressWriter)
-            // The last buffer must be finished
-            try await compressWriter.finish()
-            return tailHeaders
+            try await response.body.write(compressWriter)
         }
         return editedResponse
     }

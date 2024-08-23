@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:5.10
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -10,7 +10,7 @@ let package = Package(
         .library(name: "HummingbirdCompression", targets: ["HummingbirdCompression"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0-rc.1"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0-rc.4"),
         .package(url: "https://github.com/adam-fowler/compress-nio.git", from: "1.2.1"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.32.1"),
     ],

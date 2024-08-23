@@ -143,14 +143,17 @@ class HummingBirdCompressionTests: XCTestCase {
                     XCTAssertLessThanOrEqual(buffer.capacity, self.bufferSize)
                     try await self.parentWriter.write(buffer)
                 }
+
+                func finish(_ trailingHeaders: HTTPFields?) async throws {
+                    try await self.parentWriter.finish(trailingHeaders)
+                }
             }
 
             func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
                 let response = try await next(request, context)
                 var editedResponse = response
-                editedResponse.body = .withTrailingHeaders { writer in
-                    let tailHeaders = try await response.body.write(Writer(parentWriter: writer, bufferSize: self.bufferSize))
-                    return tailHeaders
+                editedResponse.body = .init { writer in
+                    try await response.body.write(Writer(parentWriter: writer, bufferSize: self.bufferSize))
                 }
                 return editedResponse
             }
