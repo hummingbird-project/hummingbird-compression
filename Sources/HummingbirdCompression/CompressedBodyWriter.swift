@@ -80,6 +80,12 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: R
 }
 
 extension ResponseBodyWriter {
+    ///  Return ``ResponseBodyWriter`` that compresses the contents of this ResponseBodyWriter
+    /// - Parameters:
+    ///   - algorithm: Compression algorithm
+    ///   - windowSize: Window size (in bytes) to use when compressing data
+    ///   - logger: Logger used to output compression errors
+    /// - Returns: new ``ResponseBodyWriter``
     public func compressed(
         algorithm: CompressionAlgorithm,
         windowSize: Int,
