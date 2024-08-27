@@ -136,10 +136,10 @@ class HummingBirdCompressionTests: XCTestCase {
             let bufferSize: Int
 
             struct Writer: ResponseBodyWriter {
-                let parentWriter: any ResponseBodyWriter
+                var parentWriter: any ResponseBodyWriter
                 let bufferSize: Int
 
-                func write(_ buffer: ByteBuffer) async throws {
+                mutating func write(_ buffer: ByteBuffer) async throws {
                     XCTAssertLessThanOrEqual(buffer.capacity, self.bufferSize)
                     try await self.parentWriter.write(buffer)
                 }
