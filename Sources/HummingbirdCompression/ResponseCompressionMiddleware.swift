@@ -68,7 +68,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         editedResponse.headers[.contentLength] = nil
         editedResponse.headers[.transferEncoding] = "chunked"
         editedResponse.body = .init { writer in
-            let compressWriter = try writer.compressed(
+            let compressWriter = try writer.wrapped.compressed(
                 algorithm: algorithm,
                 windowSize: self.windowSize,
                 logger: context.logger

@@ -17,7 +17,7 @@ import Hummingbird
 import Logging
 
 // ResponseBodyWriter that writes a compressed version of the response to a parent writer
-final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: ResponseBodyWriter {
+final class CompressedBodyWriter<ParentWriter: ResponseBodyWriterProtocol & Sendable>: ResponseBodyWriterProtocol {
     var parentWriter: ParentWriter
     let compressor: NIOCompressor
     var lastBuffer: ByteBuffer?
@@ -79,7 +79,7 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: R
     }
 }
 
-extension ResponseBodyWriter {
+extension ResponseBodyWriterProtocol {
     ///  Return ``Hummingbird/ResponseBodyWriter`` that compresses the contents of this ResponseBodyWriter
     /// - Parameters:
     ///   - algorithm: Compression algorithm
@@ -90,7 +90,7 @@ extension ResponseBodyWriter {
         algorithm: CompressionAlgorithm,
         windowSize: Int,
         logger: Logger
-    ) throws -> some ResponseBodyWriter {
-        try CompressedBodyWriter(parent: self, algorithm: algorithm, windowSize: windowSize, logger: logger)
+    ) throws -> ResponseBodyWriter {
+        try .init(CompressedBodyWriter(parent: self, algorithm: algorithm, windowSize: windowSize, logger: logger))
     }
 }

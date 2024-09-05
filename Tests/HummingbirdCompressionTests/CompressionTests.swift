@@ -135,8 +135,8 @@ class HummingBirdCompressionTests: XCTestCase {
         struct VerifyResponseBodyChunkSize<Context: RequestContext>: RouterMiddleware {
             let bufferSize: Int
 
-            struct Writer: ResponseBodyWriter {
-                var parentWriter: any ResponseBodyWriter
+            struct Writer: ResponseBodyWriterProtocol {
+                var parentWriter: any ResponseBodyWriterProtocol
                 let bufferSize: Int
 
                 mutating func write(_ buffer: ByteBuffer) async throws {
@@ -153,7 +153,7 @@ class HummingBirdCompressionTests: XCTestCase {
                 let response = try await next(request, context)
                 var editedResponse = response
                 editedResponse.body = .init { writer in
-                    try await response.body.write(Writer(parentWriter: writer, bufferSize: self.bufferSize))
+                    try await response.body.write(.init(Writer(parentWriter: writer, bufferSize: self.bufferSize)))
                 }
                 return editedResponse
             }
