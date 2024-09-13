@@ -80,12 +80,12 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: R
 }
 
 extension ResponseBodyWriter {
-    ///  Return ``Hummingbird/ResponseBodyWriter`` that compresses the contents of this ResponseBodyWriter
+    ///  Return ``/HummingbirdCore/ResponseBodyWriter`` that compresses the contents of this ResponseBodyWriter
     /// - Parameters:
     ///   - algorithm: Compression algorithm
     ///   - windowSize: Window size (in bytes) to use when compressing data
     ///   - logger: Logger used to output compression errors
-    /// - Returns: new ``Hummingbird/ResponseBodyWriter``
+    /// - Returns: new ``/HummingbirdCore/ResponseBodyWriter``
     public func compressed(
         algorithm: CompressionAlgorithm,
         windowSize: Int,
