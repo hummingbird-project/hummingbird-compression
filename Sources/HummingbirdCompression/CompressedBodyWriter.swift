@@ -17,8 +17,9 @@ import Hummingbird
 import Logging
 
 // ResponseBodyWriter that writes a compressed version of the response to a parent writer
-final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: ResponseBodyWriter {
+final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, A: Allocator<NIOCompressor>>: ResponseBodyWriter {
     var parentWriter: ParentWriter
+    let allocator: A
     let compressor: NIOCompressor
     var lastBuffer: ByteBuffer?
     let logger: Logger
@@ -26,20 +27,19 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: R
     init(
         parent: ParentWriter,
         algorithm: CompressionAlgorithm,
-        windowSize: Int,
+        allocator: A,
         logger: Logger
-    ) throws {
+    ) async throws {
         self.parentWriter = parent
-        self.compressor = algorithm.compressor
-        self.compressor.window = ByteBufferAllocator().buffer(capacity: windowSize)
+        self.allocator = allocator
+        self.compressor = allocator.allocate(.init(algorithm: algorithm))
         self.lastBuffer = nil
         self.logger = logger
-        try self.compressor.startStream()
     }
 
     deinit {
         do {
-            try self.compressor.finishStream()
+            try self.allocator.free(compressor)
         } catch {
             logger.error("Error finalizing compression stream: \(error) ")
         }
@@ -88,9 +88,9 @@ extension ResponseBodyWriter {
     /// - Returns: new ``HummingbirdCore/ResponseBodyWriter``
     public func compressed(
         algorithm: CompressionAlgorithm,
-        windowSize: Int,
+        allocator: some Allocator<NIOCompressor>,
         logger: Logger
-    ) throws -> some ResponseBodyWriter {
-        try CompressedBodyWriter(parent: self, algorithm: algorithm, windowSize: windowSize, logger: logger)
+    ) async throws -> some ResponseBodyWriter {
+        try await CompressedBodyWriter(parent: self, algorithm: algorithm, allocator: allocator, logger: logger)
     }
 }
