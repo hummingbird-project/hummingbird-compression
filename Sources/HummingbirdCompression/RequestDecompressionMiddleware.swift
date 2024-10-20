@@ -75,12 +75,13 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
         var baseIterator: Base.AsyncIterator
         let decompressor: NIODecompressor
         var currentBuffer: ByteBuffer?
+        var window: ByteBuffer
         let logger: Logger
 
         init(baseIterator: Base.AsyncIterator, algorithm: CompressionAlgorithm, windowSize: Int, logger: Logger) {
             self.baseIterator = baseIterator
             self.decompressor = algorithm.decompressor
-            self.decompressor.window = ByteBufferAllocator().buffer(capacity: windowSize)
+            self.window = ByteBufferAllocator().buffer(capacity: windowSize)
             self.currentBuffer = nil
             self.logger = logger
             do {
@@ -103,18 +104,13 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
                 if self.currentBuffer == nil {
                     self.currentBuffer = try await self.baseIterator.next()
                 }
-                guard var window = decompressor.window else { return nil }
-                self.decompressor.window = nil
-                defer {
-                    decompressor.window = window
-                }
-                window.clear()
+                self.window.clear()
                 while var buffer = self.currentBuffer {
                     do {
-                        try buffer.decompressStream(to: &window, with: self.decompressor)
+                        try buffer.decompressStream(to: &self.window, with: self.decompressor)
                     } catch let error as CompressNIOError where error == .bufferOverflow {
                         self.currentBuffer = buffer
-                        return window
+                        return self.window
                     } catch let error as CompressNIOError where error == .inputBufferOverflow {
                         // can ignore CompressNIOError.inputBufferOverflow errors here
                     }
@@ -122,7 +118,7 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
                     self.currentBuffer = try await self.baseIterator.next()
                 }
                 self.currentBuffer = nil
-                return window.readableBytes > 0 ? window : nil
+                return self.window.readableBytes > 0 ? self.window : nil
             } catch let error as CompressNIOError where error == .corruptData {
                 throw HTTPError(.badRequest, message: "Corrupt compression data.")
             } catch {
