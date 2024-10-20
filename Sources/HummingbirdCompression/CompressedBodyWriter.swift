@@ -17,9 +17,9 @@ import Hummingbird
 import Logging
 
 // ResponseBodyWriter that writes a compressed version of the response to a parent writer
-final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, A: Allocator<NIOCompressor>>: ResponseBodyWriter {
+final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, Allocator: CompressionAllocator>: ResponseBodyWriter where Allocator.Allocated == any NIOCompressor {
     var parentWriter: ParentWriter
-    let allocator: A
+    let allocator: Allocator
     let compressor: NIOCompressor
     var lastBuffer: ByteBuffer?
     let logger: Logger
@@ -27,12 +27,12 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, A:
     init(
         parent: ParentWriter,
         algorithm: CompressionAlgorithm,
-        allocator: A,
+        allocator: Allocator,
         logger: Logger
     ) async throws {
         self.parentWriter = parent
         self.allocator = allocator
-        self.compressor = allocator.allocate(.init(algorithm: algorithm))
+        self.compressor = try await allocator.allocate(algorithm: algorithm)
         self.lastBuffer = nil
         self.logger = logger
     }
@@ -86,11 +86,11 @@ extension ResponseBodyWriter {
     ///   - windowSize: Window size (in bytes) to use when compressing data
     ///   - logger: Logger used to output compression errors
     /// - Returns: new ``HummingbirdCore/ResponseBodyWriter``
-    public func compressed(
+    public func compressed<Allocator: CompressionAllocator>(
         algorithm: CompressionAlgorithm,
-        allocator: some Allocator<NIOCompressor>,
+        allocator: Allocator,
         logger: Logger
-    ) async throws -> some ResponseBodyWriter {
+    ) async throws -> some ResponseBodyWriter where Allocator.Allocated == any NIOCompressor {
         try await CompressedBodyWriter(parent: self, algorithm: algorithm, allocator: allocator, logger: logger)
     }
 }

@@ -12,11 +12,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-/// Protocol for allocator of object
-public protocol Allocator<Object> {
-    associatedtype Object
-    associatedtype Parameters
+import CompressNIO
 
-    func allocate(_: Parameters) async throws -> Object
-    func free(_: Object) throws
+/// Protocol for allocator of object
+public protocol CompressionAllocator<Allocated>: Sendable {
+    associatedtype Allocated
+
+    func allocate(algorithm: CompressionAlgorithm) async throws -> Allocated
+    func free(_: Allocated) throws
 }
+
+public protocol CompressorAllocator: CompressionAllocator where Allocated == any NIOCompressor {}
+public protocol DecompressorAllocator: CompressionAllocator where Allocated == any NIODecompressor {}

@@ -15,26 +15,21 @@
 import CompressNIO
 import NIOCore
 
-public struct CompressorMemoryAllocator: Allocator {
-    public typealias Object = NIOCompressor
-    public struct Parameters {
-        let algorithm: CompressionAlgorithm
-    }
-
+public struct CompressorMemoryAllocator: CompressorAllocator {
     let windowSize: Int
 
     public init(windowSize: Int) {
         self.windowSize = windowSize
     }
 
-    public func allocate(_ parameters: Parameters) async throws -> Object {
-        let compressor = parameters.algorithm.compressor
+    public func allocate(algorithm: CompressionAlgorithm) async throws -> NIOCompressor {
+        let compressor = algorithm.compressor
         compressor.window = ByteBufferAllocator().buffer(capacity: self.windowSize)
         try compressor.startStream()
         return compressor
     }
 
-    public func free(_ object: Object) throws {
+    public func free(_ object: Allocated) throws {
         try object.finishStream()
     }
 }

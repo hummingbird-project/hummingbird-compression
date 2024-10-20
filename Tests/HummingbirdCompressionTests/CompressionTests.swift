@@ -72,7 +72,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
     func testMultipleCompressResponse() async throws {
         let router = Router()
-        router.middlewares.add(ResponseCompressionMiddleware(windowSize: 65536))
+        router.middlewares.add(ResponseCompressionMiddleware(allocator: CompressorMemoryAllocator(windowSize: 65536)))
         router.post("/echo") { request, _ -> Response in
             let body = try await request.body.collect(upTo: .max)
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
@@ -160,7 +160,7 @@ class HummingBirdCompressionTests: XCTestCase {
         }
         let router = Router()
         router.middlewares.add(VerifyResponseBodyChunkSize(bufferSize: 256))
-        router.middlewares.add(ResponseCompressionMiddleware(windowSize: 256))
+        router.middlewares.add(ResponseCompressionMiddleware(allocator: CompressorMemoryAllocator(windowSize: 256)))
         router.post("/echo") { request, _ -> Response in
             return .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
         }

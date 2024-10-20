@@ -21,9 +21,9 @@ import Logging
 /// If the accept-encoding header in request is set to gzip or deflate and the response body
 /// is of at least a minimum size then the middleware will return a response with a compressed
 /// version of the response body that it received.
-public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMiddleware {
+public struct ResponseCompressionMiddleware<Context: RequestContext, Allocator: CompressorAllocator>: RouterMiddleware {
     /// compression window size
-    let windowSize: Int
+    let allocator: Allocator
     /// minimum size of response body to compress
     let minimumResponseSizeToCompress: Int
     /// Zlib configuration
@@ -38,12 +38,12 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     ///   - zlibMemoryLevel: Amount of memory to use when compressing. Less memory will mean the compression will take longer
     ///         and compression level will be reduced. Value between 1 - 9 where 1 is least amount of memory.
     public init(
-        windowSize: Int = 32768,
+        allocator: Allocator = CompressorMemoryAllocator(windowSize: 32768),
         minimumResponseSizeToCompress: Int = 1024,
         zlibCompressionLevel: Int? = nil,
         zlibMemoryLevel: Int? = nil
     ) {
-        self.windowSize = windowSize
+        self.allocator = allocator
         self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
         self.zlibConfiguration = .init(
             compressionLevel: numericCast(zlibCompressionLevel ?? -1), // -1 indicates use the default compression level set by the library
@@ -70,7 +70,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         editedResponse.body = .init { writer in
             let compressWriter = try await writer.compressed(
                 algorithm: algorithm,
-                windowSize: self.windowSize,
+                allocator: self.allocator,
                 logger: context.logger
             )
             try await response.body.write(compressWriter)
