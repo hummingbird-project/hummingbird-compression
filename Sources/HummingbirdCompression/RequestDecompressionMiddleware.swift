@@ -47,13 +47,13 @@ public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMid
     }
 
     /// Determines the decompression algorithm based off content encoding header.
-    private func algorithm(from contentEncodingHeaders: [String]) -> CompressionAlgorithm? {
+    private func algorithm(from contentEncodingHeaders: [String]) -> ZlibAlgorithm? {
         for encoding in contentEncodingHeaders {
             switch encoding {
             case "gzip":
-                return CompressionAlgorithm.gzip()
+                return .gzip
             case "deflate":
-                return CompressionAlgorithm.zlib()
+                return .zlib
             default:
                 break
             }
@@ -63,24 +63,31 @@ public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMid
 }
 
 /// AsyncSequence of decompressed ByteBuffers
-struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequence, Sendable where Base.Element == ByteBuffer {
+final class DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequence, Sendable where Base.Element == ByteBuffer {
     typealias Element = ByteBuffer
 
     let base: Base
-    let algorithm: CompressionAlgorithm
+    var algorithm: ZlibAlgorithm
     let windowSize: Int
     let logger: Logger
 
+    init(base: Base, algorithm: ZlibAlgorithm, windowSize: Int, logger: Logger) {
+        self.base = base
+        self.algorithm = algorithm
+        self.windowSize = windowSize
+        self.logger = logger
+    }
+
     class AsyncIterator: AsyncIteratorProtocol {
         var baseIterator: Base.AsyncIterator
-        let decompressor: NIODecompressor
+        var decompressor: ZlibDecompressor
         var currentBuffer: ByteBuffer?
         var window: ByteBuffer
         let logger: Logger
 
-        init(baseIterator: Base.AsyncIterator, algorithm: CompressionAlgorithm, windowSize: Int, logger: Logger) {
+        init(baseIterator: Base.AsyncIterator, algorithm: ZlibAlgorithm, windowSize: Int, logger: Logger) {
             self.baseIterator = baseIterator
-            self.decompressor = algorithm.decompressor
+            self.decompressor = ZlibDecompressor(algorithm: algorithm)
             self.window = ByteBufferAllocator().buffer(capacity: windowSize)
             self.currentBuffer = nil
             self.logger = logger
@@ -107,7 +114,7 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
                 self.window.clear()
                 while var buffer = self.currentBuffer {
                     do {
-                        try buffer.decompressStream(to: &self.window, with: self.decompressor)
+                        try buffer.decompressStream(to: &self.window, with: &self.decompressor)
                     } catch let error as CompressNIOError where error == .bufferOverflow {
                         self.currentBuffer = buffer
                         return self.window
@@ -127,7 +134,7 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
         }
     }
 
-    func makeAsyncIterator() -> AsyncIterator {
+    consuming func makeAsyncIterator() -> AsyncIterator {
         .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm, windowSize: self.windowSize, logger: self.logger)
     }
 }
