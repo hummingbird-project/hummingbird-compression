@@ -47,13 +47,13 @@ public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMid
     }
 
     /// Determines the decompression algorithm based off content encoding header.
-    private func algorithm(from contentEncodingHeaders: [String]) -> CompressionAlgorithm? {
+    private func algorithm(from contentEncodingHeaders: [String]) -> ZlibAlgorithm? {
         for encoding in contentEncodingHeaders {
             switch encoding {
             case "gzip":
-                return CompressionAlgorithm.gzip()
+                return .gzip
             case "deflate":
-                return CompressionAlgorithm.zlib()
+                return .zlib
             default:
                 break
             }
@@ -67,62 +67,74 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
     typealias Element = ByteBuffer
 
     let base: Base
-    let algorithm: CompressionAlgorithm
+    let algorithm: ZlibAlgorithm
     let windowSize: Int
     let logger: Logger
 
+    init(base: Base, algorithm: ZlibAlgorithm, windowSize: Int, logger: Logger) {
+        self.base = base
+        self.algorithm = algorithm
+        self.windowSize = windowSize
+        self.logger = logger
+    }
+
     class AsyncIterator: AsyncIteratorProtocol {
+        enum State {
+            case uninitialized(ZlibAlgorithm)
+            case decompressing(ZlibDecompressor, ByteBuffer)
+            case done
+        }
+
         var baseIterator: Base.AsyncIterator
-        let decompressor: NIODecompressor
-        var currentBuffer: ByteBuffer?
+        var state: State
         var window: ByteBuffer
         let logger: Logger
 
-        init(baseIterator: Base.AsyncIterator, algorithm: CompressionAlgorithm, windowSize: Int, logger: Logger) {
+        init(baseIterator: Base.AsyncIterator, algorithm: ZlibAlgorithm, windowSize: Int, logger: Logger) {
             self.baseIterator = baseIterator
-            self.decompressor = algorithm.decompressor
+            self.state = .uninitialized(algorithm)
             self.window = ByteBufferAllocator().buffer(capacity: windowSize)
-            self.currentBuffer = nil
             self.logger = logger
-            do {
-                try self.decompressor.startStream()
-            } catch {
-                logger.error("Error initializing decompression stream: \(error) ")
-            }
-        }
-
-        deinit {
-            do {
-                try self.decompressor.finishStream()
-            } catch {
-                logger.error("Error finalizing decompression stream: \(error) ")
-            }
         }
 
         func next() async throws -> ByteBuffer? {
-            do {
-                if self.currentBuffer == nil {
-                    self.currentBuffer = try await self.baseIterator.next()
+            switch self.state {
+            case .uninitialized(let algorithm):
+                guard let buffer = try await self.baseIterator.next() else {
+                    self.state = .done
+                    return nil
                 }
-                self.window.clear()
-                while var buffer = self.currentBuffer {
-                    do {
-                        try buffer.decompressStream(to: &self.window, with: self.decompressor)
-                    } catch let error as CompressNIOError where error == .bufferOverflow {
-                        self.currentBuffer = buffer
-                        return self.window
-                    } catch let error as CompressNIOError where error == .inputBufferOverflow {
-                        // can ignore CompressNIOError.inputBufferOverflow errors here
-                    }
+                let decompressor = try ZlibDecompressor(algorithm: algorithm)
+                self.state = .decompressing(decompressor, buffer)
+                return try await self.next()
 
-                    self.currentBuffer = try await self.baseIterator.next()
+            case .decompressing(let decompressor, var buffer):
+                do {
+                    self.window.clear()
+                    while true {
+                        do {
+                            try buffer.decompressStream(to: &self.window, with: decompressor)
+                        } catch let error as CompressNIOError where error == .bufferOverflow {
+                            self.state = .decompressing(decompressor, buffer)
+                            return self.window
+                        } catch let error as CompressNIOError where error == .inputBufferOverflow {
+                            // can ignore CompressNIOError.inputBufferOverflow errors here
+                        }
+
+                        guard let nextBuffer = try await self.baseIterator.next() else {
+                            self.state = .done
+                            return self.window.readableBytes > 0 ? self.window : nil
+                        }
+                        buffer = nextBuffer
+                    }
+                } catch let error as CompressNIOError where error == .corruptData {
+                    throw HTTPError(.badRequest, message: "Corrupt compression data.")
+                } catch {
+                    throw HTTPError(.badRequest, message: "Data decompression failed.")
                 }
-                self.currentBuffer = nil
-                return self.window.readableBytes > 0 ? self.window : nil
-            } catch let error as CompressNIOError where error == .corruptData {
-                throw HTTPError(.badRequest, message: "Corrupt compression data.")
-            } catch {
-                throw HTTPError(.badRequest, message: "Data decompression failed.")
+
+            case .done:
+                return nil
             }
         }
     }

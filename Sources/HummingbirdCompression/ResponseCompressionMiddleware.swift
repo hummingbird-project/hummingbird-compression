@@ -70,6 +70,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         editedResponse.body = .init { writer in
             let compressWriter = try writer.compressed(
                 algorithm: algorithm,
+                configuration: self.zlibConfiguration,
                 windowSize: self.windowSize,
                 logger: context.logger
             )
@@ -95,7 +96,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     }
 
     /// Determines the compression algorithm to use for the next response.
-    private func compressionAlgorithm(from acceptContentHeaders: [some StringProtocol]) -> (compressor: CompressionAlgorithm, name: String)? {
+    private func compressionAlgorithm(from acceptContentHeaders: [some StringProtocol]) -> (algorithm: ZlibAlgorithm, name: String)? {
         var gzipQValue: Float = -1
         var deflateQValue: Float = -1
         var anyQValue: Float = -1
@@ -112,15 +113,15 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
 
         if gzipQValue > 0 || deflateQValue > 0 {
             if gzipQValue > deflateQValue {
-                return (compressor: CompressionAlgorithm.gzip(configuration: self.zlibConfiguration), name: "gzip")
+                return (algorithm: .gzip, name: "gzip")
             } else {
-                return (compressor: CompressionAlgorithm.zlib(configuration: self.zlibConfiguration), name: "deflate")
+                return (algorithm: .zlib, name: "deflate")
             }
         } else if anyQValue > 0 {
             // Though gzip is usually less well compressed than deflate, it has slightly
             // wider support because it's unabiguous. We therefore default to that unless
             // the client has expressed a preference.
-            return (compressor: CompressionAlgorithm.gzip(configuration: self.zlibConfiguration), name: "gzip")
+            return (algorithm: .gzip, name: "gzip")
         }
 
         return nil
