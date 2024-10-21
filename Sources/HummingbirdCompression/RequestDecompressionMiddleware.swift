@@ -134,7 +134,7 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
         }
     }
 
-    consuming func makeAsyncIterator() -> AsyncIterator {
+    func makeAsyncIterator() -> AsyncIterator {
         .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm, windowSize: self.windowSize, logger: self.logger)
     }
 }
