@@ -67,7 +67,7 @@ final class DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncS
     typealias Element = ByteBuffer
 
     let base: Base
-    var algorithm: ZlibAlgorithm
+    let algorithm: ZlibAlgorithm
     let windowSize: Int
     let logger: Logger
 
