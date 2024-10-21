@@ -63,7 +63,7 @@ public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMid
 }
 
 /// AsyncSequence of decompressed ByteBuffers
-final class DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequence, Sendable where Base.Element == ByteBuffer {
+struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequence, Sendable where Base.Element == ByteBuffer {
     typealias Element = ByteBuffer
 
     let base: Base
