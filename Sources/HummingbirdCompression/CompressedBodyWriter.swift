@@ -19,8 +19,8 @@ import Logging
 // ResponseBodyWriter that writes a compressed version of the response to a parent writer
 final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: ResponseBodyWriter {
     var parentWriter: ParentWriter
-    var compressor: ZlibCompressor
-    var window: ByteBuffer
+    private let compressor: ZlibCompressor
+    private var window: ByteBuffer
     var lastBuffer: ByteBuffer?
     let logger: Logger
 
@@ -32,25 +32,16 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: R
         logger: Logger
     ) throws {
         self.parentWriter = parent
-        self.compressor = ZlibCompressor(algorithm: algorithm, configuration: configuration)
-        try self.compressor.startStream()
+        self.compressor = try ZlibCompressor(algorithm: algorithm, configuration: configuration)
         self.window = ByteBufferAllocator().buffer(capacity: windowSize)
         self.lastBuffer = nil
         self.logger = logger
     }
 
-    deinit {
-        do {
-            try self.compressor.finishStream()
-        } catch {
-            logger.error("Error finalizing compression stream: \(error) ")
-        }
-    }
-
     /// Write response buffer
     func write(_ buffer: ByteBuffer) async throws {
         var buffer = buffer
-        try await buffer.compressStream(with: &self.compressor, window: &self.window, flush: .sync) { buffer in
+        try await buffer.compressStream(with: self.compressor, window: &self.window, flush: .sync) { buffer in
             try await self.parentWriter.write(buffer)
         }
         // need to store the last buffer so it can be finished once the writer is done
@@ -65,7 +56,7 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: R
             // keep finishing stream until we don't get a buffer overflow
             while true {
                 do {
-                    try lastBuffer.compressStream(to: &self.window, with: &self.compressor, flush: .finish)
+                    try lastBuffer.compressStream(to: &self.window, with: self.compressor, flush: .finish)
                     try await self.parentWriter.write(self.window)
                     self.window.clear()
                     break
