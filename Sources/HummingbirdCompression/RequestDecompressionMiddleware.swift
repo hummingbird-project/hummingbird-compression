@@ -84,6 +84,7 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
             case decompressing(ZlibDecompressor, ByteBuffer)
             case done
         }
+
         var baseIterator: Base.AsyncIterator
         var state: State
         var window: ByteBuffer
@@ -97,7 +98,7 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
         }
 
         func next() async throws -> ByteBuffer? {
-            switch state {
+            switch self.state {
             case .uninitialized(let algorithm):
                 guard let buffer = try await self.baseIterator.next() else {
                     self.state = .done
@@ -105,8 +106,8 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
                 }
                 let decompressor = try ZlibDecompressor(algorithm: algorithm)
                 self.state = .decompressing(decompressor, buffer)
-                return try await next()
-            
+                return try await self.next()
+
             case .decompressing(let decompressor, var buffer):
                 do {
                     self.window.clear()
