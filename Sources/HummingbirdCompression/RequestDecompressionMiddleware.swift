@@ -78,52 +78,48 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
         self.logger = logger
     }
 
-    class AsyncIterator: AsyncIteratorProtocol {
+    struct AsyncIterator: AsyncIteratorProtocol {
         enum State {
-            case uninitialized(ZlibAlgorithm)
-            case decompressing(ZlibDecompressor, ByteBuffer)
+            case uninitialized(ZlibAlgorithm, windowSize: Int)
+            case decompressing(ZlibDecompressor, buffer: ByteBuffer, window: ByteBuffer)
             case done
         }
 
         var baseIterator: Base.AsyncIterator
         var state: State
-        var window: ByteBuffer
-        let logger: Logger
 
-        init(baseIterator: Base.AsyncIterator, algorithm: ZlibAlgorithm, windowSize: Int, logger: Logger) {
+        init(baseIterator: Base.AsyncIterator, algorithm: ZlibAlgorithm, windowSize: Int) {
             self.baseIterator = baseIterator
-            self.state = .uninitialized(algorithm)
-            self.window = ByteBufferAllocator().buffer(capacity: windowSize)
-            self.logger = logger
+            self.state = .uninitialized(algorithm, windowSize: windowSize)
         }
 
-        func next() async throws -> ByteBuffer? {
+        mutating func next() async throws -> ByteBuffer? {
             switch self.state {
-            case .uninitialized(let algorithm):
+            case .uninitialized(let algorithm, let windowSize):
                 guard let buffer = try await self.baseIterator.next() else {
                     self.state = .done
                     return nil
                 }
                 let decompressor = try ZlibDecompressor(algorithm: algorithm)
-                self.state = .decompressing(decompressor, buffer)
+                self.state = .decompressing(decompressor, buffer: buffer, window: ByteBufferAllocator().buffer(capacity: windowSize))
                 return try await self.next()
 
-            case .decompressing(let decompressor, var buffer):
+            case .decompressing(let decompressor, var buffer, var window):
                 do {
-                    self.window.clear()
+                    window.clear()
                     while true {
                         do {
-                            try buffer.decompressStream(to: &self.window, with: decompressor)
+                            try buffer.decompressStream(to: &window, with: decompressor)
                         } catch let error as CompressNIOError where error == .bufferOverflow {
-                            self.state = .decompressing(decompressor, buffer)
-                            return self.window
+                            self.state = .decompressing(decompressor, buffer: buffer, window: window)
+                            return window
                         } catch let error as CompressNIOError where error == .inputBufferOverflow {
                             // can ignore CompressNIOError.inputBufferOverflow errors here
                         }
 
                         guard let nextBuffer = try await self.baseIterator.next() else {
                             self.state = .done
-                            return self.window.readableBytes > 0 ? self.window : nil
+                            return window.readableBytes > 0 ? window : nil
                         }
                         buffer = nextBuffer
                     }
@@ -140,6 +136,6 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
     }
 
     func makeAsyncIterator() -> AsyncIterator {
-        .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm, windowSize: self.windowSize, logger: self.logger)
+        .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm, windowSize: self.windowSize)
     }
 }
