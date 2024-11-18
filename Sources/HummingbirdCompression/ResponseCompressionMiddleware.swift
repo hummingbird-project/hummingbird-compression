@@ -33,21 +33,19 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     /// - Parameters:
     ///   - windowSize: Compression window size
     ///   - minimumResponseSizeToCompress: Minimum size of response before applying compression
-    ///   - zlibCompressionLevel: zlib compression level to use. Value between 0 and 9 where 1 is fastest, 9 is best compression and
-    ///         0 is no compression.
-    ///   - zlibMemoryLevel: Amount of memory to use when compressing. Less memory will mean the compression will take longer
-    ///         and compression level will be reduced. Value between 1 - 9 where 1 is least amount of memory.
+    ///   - zlibCompressionLevel: zlib compression level.
+    ///   - zlibMemoryLevel: Amount of memory to allocated for compression state.
     public init(
         windowSize: Int = 32768,
         minimumResponseSizeToCompress: Int = 1024,
-        zlibCompressionLevel: Int? = nil,
-        zlibMemoryLevel: Int? = nil
+        zlibCompressionLevel: ZlibConfiguration.CompressionLevel = .defaultCompressionLevel,
+        zlibMemoryLevel: ZlibConfiguration.MemoryLevel = .defaultMemoryLevel
     ) {
         self.windowSize = windowSize
         self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
         self.zlibConfiguration = .init(
-            compressionLevel: numericCast(zlibCompressionLevel ?? -1), // -1 indicates use the default compression level set by the library
-            memoryLevel: numericCast(zlibMemoryLevel ?? 8) // 8 is the default value for the library
+            compressionLevel: zlibCompressionLevel,
+            memoryLevel: zlibMemoryLevel
         )
     }
 
