@@ -31,7 +31,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let router = Router()
         router.middlewares.add(ResponseCompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
-            return .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
+            .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
         }
         let app = Application(router: router)
         try await app.test(.router) { client in
@@ -50,7 +50,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let router = Router()
         router.middlewares.add(ResponseCompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
-            return .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
+            .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
         }
         let app = Application(router: router)
         let buffer = self.randomBuffer(size: 512_000)
@@ -86,7 +86,12 @@ class HummingBirdCompressionTests: XCTestCase {
                         group.addTask {
                             try await app.test(.router) { client in
                                 let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))
-                                try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
+                                try await client.execute(
+                                    uri: "/echo",
+                                    method: .post,
+                                    headers: [.acceptEncoding: "gzip"],
+                                    body: testBuffer
+                                ) { response in
                                     var body = response.body
                                     let uncompressed: ByteBuffer
                                     if response.headers[.contentEncoding] == "gzip" {
@@ -162,7 +167,7 @@ class HummingBirdCompressionTests: XCTestCase {
         router.middlewares.add(VerifyResponseBodyChunkSize(bufferSize: 256))
         router.middlewares.add(ResponseCompressionMiddleware(windowSize: 256))
         router.post("/echo") { request, _ -> Response in
-            return .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
+            .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
         }
         let app = Application(router: router)
         try await app.test(.router) { client in
@@ -199,7 +204,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
-            return .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
+            .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
         }
         let app = Application(router: router)
         try await app.test(.router) { client in
@@ -257,7 +262,12 @@ class HummingBirdCompressionTests: XCTestCase {
                     group.addTask {
                         let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))!
                         let compressedBuffer = try compress(testBuffer)
-                        try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer) { response in
+                        try await client.execute(
+                            uri: "/echo",
+                            method: .post,
+                            headers: [.contentEncoding: "gzip"],
+                            body: compressedBuffer
+                        ) { response in
                             XCTAssertEqual(response.body, testBuffer)
                         }
                     }
