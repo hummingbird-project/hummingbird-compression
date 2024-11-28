@@ -33,12 +33,14 @@ public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMid
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
         if let algorithm = algorithm(from: request.headers[values: .contentEncoding]) {
             var request = request
-            request.body = .init(asyncSequence: DecompressByteBufferSequence(
-                base: request.body,
-                algorithm: algorithm,
-                windowSize: self.windowSize,
-                logger: context.logger
-            ))
+            request.body = .init(
+                asyncSequence: DecompressByteBufferSequence(
+                    base: request.body,
+                    algorithm: algorithm,
+                    windowSize: self.windowSize,
+                    logger: context.logger
+                )
+            )
             let response = try await next(request, context)
             return response
         } else {
