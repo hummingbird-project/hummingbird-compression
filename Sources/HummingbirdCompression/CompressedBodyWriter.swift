@@ -18,7 +18,7 @@ import Logging
 
 // ResponseBodyWriter that writes a compressed version of the response to a parent writer
 final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: ResponseBodyWriter {
-    var parentWriter: ParentWriter
+    let parentWriter: ParentWriter
     private let compressor: ZlibCompressor
     private var window: ByteBuffer
     var lastBuffer: ByteBuffer?
