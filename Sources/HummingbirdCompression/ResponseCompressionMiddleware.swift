@@ -29,9 +29,9 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     /// Zlib configuration
     let zlibConfiguration: ZlibConfiguration
     /// Pool of gzip compressors
-    let gzipCompressorPool: ZlibCompressorPool
+    let gzipCompressorPool: PoolAllocator<ZlibCompressorAllocator>
     /// Pool of deflate compressors
-    let deflateCompressorPool: ZlibCompressorPool
+    let deflateCompressorPool: PoolAllocator<ZlibCompressorAllocator>
 
     /// Initialize ResponseCompressionMiddleware
     /// - Parameters:
@@ -51,9 +51,9 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
             compressionLevel: zlibCompressionLevel,
             memoryLevel: zlibMemoryLevel
         )
-        self.gzipCompressorPool = .init(size: 16, algorithm: .gzip, configuration: self.zlibConfiguration)
+        self.gzipCompressorPool = .init(size: 16, base: .init(algorithm: .gzip, configuration: self.zlibConfiguration))
         // HTTP deflate is actually zlib compression
-        self.deflateCompressorPool = .init(size: 16, algorithm: .zlib, configuration: self.zlibConfiguration)
+        self.deflateCompressorPool = .init(size: 16, base: .init(algorithm: .zlib, configuration: self.zlibConfiguration))
     }
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
@@ -100,7 +100,9 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     }
 
     /// Determines the compression algorithm to use for the next response.
-    private func compressionAlgorithm(from acceptContentHeaders: [some StringProtocol]) -> (pool: ZlibCompressorPool, name: String)? {
+    private func compressionAlgorithm(
+        from acceptContentHeaders: [some StringProtocol]
+    ) -> (pool: PoolAllocator<ZlibCompressorAllocator>, name: String)? {
         var gzipQValue: Float = -1
         var deflateQValue: Float = -1
         var anyQValue: Float = -1

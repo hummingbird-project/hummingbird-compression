@@ -2,7 +2,7 @@
 //
 // This source file is part of the Hummingbird server framework project
 //
-// Copyright (c) 2021-2024 the Hummingbird authors
+// Copyright (c) 2021-2025 the Hummingbird authors
 // Licensed under Apache License v2.0
 //
 // See LICENSE.txt for license information
@@ -17,60 +17,11 @@ import Hummingbird
 import Logging
 import NIOConcurrencyHelpers
 
-protocol ZlibCompressorAllocator {
-    func allocate() throws -> ZlibCompressor
-    func free(_ compressor: ZlibCompressor) throws
-}
-
-struct ZlibCompressorMemoryAllocator: ZlibCompressorAllocator, Sendable {
-    let algorithm: ZlibAlgorithm
-    let configuration: ZlibConfiguration
-
-    func allocate() throws -> ZlibCompressor {
-        try ZlibCompressor(algorithm: algorithm, configuration: configuration)
-    }
-
-    func free(_ compressor: ZlibCompressor) throws {
-    }
-}
-
-final class ZlibCompressorPool: @unchecked Sendable, ZlibCompressorAllocator {
-    let algorithm: ZlibAlgorithm
-    let configuration: ZlibConfiguration
-    let poolSize: Int
-    let compressors: NIOLockedValueBox<[ZlibCompressor]>
-
-    init(size: Int, algorithm: ZlibAlgorithm, configuration: ZlibConfiguration) {
-        self.poolSize = size
-        self.compressors = .init([])
-        self.algorithm = algorithm
-        self.configuration = configuration
-    }
-
-    func allocate() throws -> ZlibCompressor {
-        let compressor = self.compressors.withLockedValue {
-            $0.popLast()
-        }
-        if let compressor {
-            return compressor
-        }
-        return try ZlibCompressor(algorithm: algorithm, configuration: configuration)
-    }
-
-    func free(_ compressor: ZlibCompressor) throws {
-        try self.compressors.withLockedValue {
-            if $0.count < poolSize {
-                try compressor.reset()
-                $0.append(compressor)
-            }
-        }
-    }
-}
-
 // ResponseBodyWriter that writes a compressed version of the response to a parent writer
-final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, Allocator: ZlibCompressorAllocator>: ResponseBodyWriter {
+final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, Allocator: ZlibAllocator>: ResponseBodyWriter
+where Allocator.Value == ZlibCompressor {
     var parentWriter: ParentWriter
-    private var compressor: ZlibCompressor
+    private var compressor: ZlibCompressor?
     private var allocator: Allocator
     private var window: ByteBuffer
     var lastBuffer: ByteBuffer?
@@ -92,8 +43,9 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, Al
 
     /// Write response buffer
     func write(_ buffer: ByteBuffer) async throws {
+        guard let compressor else { preconditionFailure("Cannot call write after finish") }
         var buffer = buffer
-        try await buffer.compressStream(with: self.compressor, window: &self.window, flush: .sync) { buffer in
+        try await buffer.compressStream(with: compressor, window: &self.window, flush: .sync) { buffer in
             try await self.parentWriter.write(buffer)
         }
         // need to store the last buffer so it can be finished once the writer is done
@@ -105,10 +57,11 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, Al
     consuming func finish(_ trailingHeaders: HTTPFields?) async throws {
         // The last buffer must be finished
         if var lastBuffer {
+            guard let compressor else { preconditionFailure("Cannot call finish twice") }
             // keep finishing stream until we don't get a buffer overflow
             while true {
                 do {
-                    try lastBuffer.compressStream(to: &self.window, with: self.compressor, flush: .finish)
+                    try lastBuffer.compressStream(to: &self.window, with: compressor, flush: .finish)
                     try await self.parentWriter.write(self.window)
                     self.window.clear()
                     break
@@ -119,7 +72,7 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, Al
             }
         }
         self.lastBuffer = nil
-        try self.allocator.free(self.compressor)
+        try self.allocator.free(&self.compressor)
         try await self.parentWriter.finish(trailingHeaders)
     }
 }
@@ -132,10 +85,25 @@ extension ResponseBodyWriter {
     ///   - logger: Logger used to output compression errors
     /// - Returns: new ``HummingbirdCore/ResponseBodyWriter``
     func compressed(
-        compressorPool: ZlibCompressorPool,
+        compressorPool: PoolAllocator<ZlibCompressorAllocator>,
         windowSize: Int,
         logger: Logger
     ) throws -> some ResponseBodyWriter {
         try CompressedBodyWriter(parent: self, allocator: compressorPool, windowSize: windowSize, logger: logger)
+    }
+}
+
+extension ZlibCompressor: PoolReusable {}
+struct ZlibCompressorAllocator: ZlibAllocator, Sendable {
+    typealias Value = ZlibCompressor
+    let algorithm: ZlibAlgorithm
+    let configuration: ZlibConfiguration
+
+    func allocate() throws -> ZlibCompressor {
+        try ZlibCompressor(algorithm: algorithm, configuration: configuration)
+    }
+
+    func free(_ compressor: inout ZlibCompressor?) throws {
+        compressor = nil
     }
 }
