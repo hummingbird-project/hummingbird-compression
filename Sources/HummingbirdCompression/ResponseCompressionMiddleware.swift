@@ -52,7 +52,8 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
             memoryLevel: zlibMemoryLevel
         )
         self.gzipCompressorPool = .init(size: 16, algorithm: .gzip, configuration: self.zlibConfiguration)
-        self.deflateCompressorPool = .init(size: 16, algorithm: .deflate, configuration: self.zlibConfiguration)
+        // HTTP deflate is actually zlib compression
+        self.deflateCompressorPool = .init(size: 16, algorithm: .zlib, configuration: self.zlibConfiguration)
     }
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
@@ -64,37 +65,22 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
                 return response
             }
         }
-        guard let (algorithm, name) = self.compressionAlgorithm(from: request.headers[values: .acceptEncoding]) else {
+        guard let (pool, name) = self.compressionAlgorithm(from: request.headers[values: .acceptEncoding]) else {
             return response
         }
         var editedResponse = response
         editedResponse.headers[values: .contentEncoding].append(name)
         editedResponse.headers[.contentLength] = nil
         editedResponse.headers[.transferEncoding] = "chunked"
-        switch algorithm {
-        case .gzip:
-            editedResponse.body = .init { writer in
-                let compressWriter = try writer.compressed(
-                    compressorPool: gzipCompressorPool,
-                    windowSize: self.windowSize,
-                    logger: context.logger
-                )
-                try await response.body.write(compressWriter)
-            }
-            return editedResponse
-        case .deflate:
-            editedResponse.body = .init { writer in
-                let compressWriter = try writer.compressed(
-                    compressorPool: deflateCompressorPool,
-                    windowSize: self.windowSize,
-                    logger: context.logger
-                )
-                try await response.body.write(compressWriter)
-            }
-            return editedResponse
-        case .zlib:
-            preconditionFailure()
+        editedResponse.body = .init { writer in
+            let compressWriter = try writer.compressed(
+                compressorPool: pool,
+                windowSize: self.windowSize,
+                logger: context.logger
+            )
+            try await response.body.write(compressWriter)
         }
+        return editedResponse
     }
 
     /// Given a header value, extracts the q value if there is one present. If one is not present,
@@ -114,7 +100,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     }
 
     /// Determines the compression algorithm to use for the next response.
-    private func compressionAlgorithm(from acceptContentHeaders: [some StringProtocol]) -> (algorithm: ZlibAlgorithm, name: String)? {
+    private func compressionAlgorithm(from acceptContentHeaders: [some StringProtocol]) -> (pool: ZlibCompressorPool, name: String)? {
         var gzipQValue: Float = -1
         var deflateQValue: Float = -1
         var anyQValue: Float = -1
@@ -131,15 +117,15 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
 
         if gzipQValue > 0 || deflateQValue > 0 {
             if gzipQValue > deflateQValue {
-                return (algorithm: .gzip, name: "gzip")
+                return (pool: self.gzipCompressorPool, name: "gzip")
             } else {
-                return (algorithm: .zlib, name: "deflate")
+                return (pool: self.deflateCompressorPool, name: "deflate")
             }
         } else if anyQValue > 0 {
             // Though gzip is usually less well compressed than deflate, it has slightly
             // wider support because it's unabiguous. We therefore default to that unless
             // the client has expressed a preference.
-            return (algorithm: .gzip, name: "gzip")
+            return (pool: self.gzipCompressorPool, name: "gzip")
         }
 
         return nil
