@@ -15,24 +15,76 @@
 import CompressNIO
 import Hummingbird
 import Logging
+import NIOConcurrencyHelpers
+
+protocol ZlibCompressorAllocator {
+    func allocate() throws -> ZlibCompressor
+    func free(_ compressor: ZlibCompressor) throws
+}
+
+struct ZlibCompressorMemoryAllocator: ZlibCompressorAllocator, Sendable {
+    let algorithm: ZlibAlgorithm
+    let configuration: ZlibConfiguration
+
+    func allocate() throws -> ZlibCompressor {
+        try ZlibCompressor(algorithm: algorithm, configuration: configuration)
+    }
+
+    func free(_ compressor: ZlibCompressor) throws {
+    }
+}
+
+final class ZlibCompressorPool: @unchecked Sendable, ZlibCompressorAllocator {
+    let algorithm: ZlibAlgorithm
+    let configuration: ZlibConfiguration
+    let poolSize: Int
+    let compressors: NIOLockedValueBox<[ZlibCompressor]>
+
+    init(size: Int, algorithm: ZlibAlgorithm, configuration: ZlibConfiguration) {
+        self.poolSize = size
+        self.compressors = .init([])
+        self.algorithm = algorithm
+        self.configuration = configuration
+    }
+
+    func allocate() throws -> ZlibCompressor {
+        let compressor = self.compressors.withLockedValue {
+            $0.popLast()
+        }
+        if let compressor {
+            return compressor
+        }
+        return try ZlibCompressor(algorithm: algorithm, configuration: configuration)
+    }
+
+    func free(_ compressor: ZlibCompressor) throws {
+        try self.compressors.withLockedValue {
+            if $0.count < poolSize {
+                try compressor.reset()
+                $0.append(compressor)
+            }
+        }
+    }
+}
 
 // ResponseBodyWriter that writes a compressed version of the response to a parent writer
-final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: ResponseBodyWriter {
+final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, Allocator: ZlibCompressorAllocator>: ResponseBodyWriter {
     var parentWriter: ParentWriter
-    private let compressor: ZlibCompressor
+    private var compressor: ZlibCompressor
+    private var allocator: Allocator
     private var window: ByteBuffer
     var lastBuffer: ByteBuffer?
     let logger: Logger
 
     init(
         parent: ParentWriter,
-        algorithm: ZlibAlgorithm,
-        configuration: ZlibConfiguration,
+        allocator: Allocator,
         windowSize: Int,
         logger: Logger
     ) throws {
         self.parentWriter = parent
-        self.compressor = try ZlibCompressor(algorithm: algorithm, configuration: configuration)
+        self.allocator = allocator
+        self.compressor = try allocator.allocate()
         self.window = ByteBufferAllocator().buffer(capacity: windowSize)
         self.lastBuffer = nil
         self.logger = logger
@@ -67,7 +119,7 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: R
             }
         }
         self.lastBuffer = nil
-
+        try self.allocator.free(self.compressor)
         try await self.parentWriter.finish(trailingHeaders)
     }
 }
@@ -79,12 +131,11 @@ extension ResponseBodyWriter {
     ///   - windowSize: Window size (in bytes) to use when compressing data
     ///   - logger: Logger used to output compression errors
     /// - Returns: new ``HummingbirdCore/ResponseBodyWriter``
-    public func compressed(
-        algorithm: ZlibAlgorithm,
-        configuration: ZlibConfiguration,
+    func compressed(
+        compressorPool: ZlibCompressorPool,
         windowSize: Int,
         logger: Logger
     ) throws -> some ResponseBodyWriter {
-        try CompressedBodyWriter(parent: self, algorithm: algorithm, configuration: configuration, windowSize: windowSize, logger: logger)
+        try CompressedBodyWriter(parent: self, allocator: compressorPool, windowSize: windowSize, logger: logger)
     }
 }

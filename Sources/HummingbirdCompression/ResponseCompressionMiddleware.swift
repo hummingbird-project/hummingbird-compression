@@ -28,6 +28,10 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     let minimumResponseSizeToCompress: Int
     /// Zlib configuration
     let zlibConfiguration: ZlibConfiguration
+    /// Pool of gzip compressors
+    let gzipCompressorPool: ZlibCompressorPool
+    /// Pool of deflate compressors
+    let deflateCompressorPool: ZlibCompressorPool
 
     /// Initialize ResponseCompressionMiddleware
     /// - Parameters:
@@ -47,6 +51,8 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
             compressionLevel: zlibCompressionLevel,
             memoryLevel: zlibMemoryLevel
         )
+        self.gzipCompressorPool = .init(size: 16, algorithm: .gzip, configuration: self.zlibConfiguration)
+        self.deflateCompressorPool = .init(size: 16, algorithm: .deflate, configuration: self.zlibConfiguration)
     }
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
@@ -65,16 +71,30 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         editedResponse.headers[values: .contentEncoding].append(name)
         editedResponse.headers[.contentLength] = nil
         editedResponse.headers[.transferEncoding] = "chunked"
-        editedResponse.body = .init { writer in
-            let compressWriter = try writer.compressed(
-                algorithm: algorithm,
-                configuration: self.zlibConfiguration,
-                windowSize: self.windowSize,
-                logger: context.logger
-            )
-            try await response.body.write(compressWriter)
+        switch algorithm {
+        case .gzip:
+            editedResponse.body = .init { writer in
+                let compressWriter = try writer.compressed(
+                    compressorPool: gzipCompressorPool,
+                    windowSize: self.windowSize,
+                    logger: context.logger
+                )
+                try await response.body.write(compressWriter)
+            }
+            return editedResponse
+        case .deflate:
+            editedResponse.body = .init { writer in
+                let compressWriter = try writer.compressed(
+                    compressorPool: deflateCompressorPool,
+                    windowSize: self.windowSize,
+                    logger: context.logger
+                )
+                try await response.body.write(compressWriter)
+            }
+            return editedResponse
+        case .zlib:
+            preconditionFailure()
         }
-        return editedResponse
     }
 
     /// Given a header value, extracts the q value if there is one present. If one is not present,
