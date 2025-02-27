@@ -72,7 +72,7 @@ where Allocator.Value == ZlibCompressor {
             }
         }
         self.lastBuffer = nil
-        
+
         self.allocator.free(&self.compressor)
         try await self.parentWriter.finish(trailingHeaders)
     }
@@ -85,12 +85,32 @@ extension ResponseBodyWriter {
     ///   - windowSize: Window size (in bytes) to use when compressing data
     ///   - logger: Logger used to output compression errors
     /// - Returns: new ``HummingbirdCore/ResponseBodyWriter``
-    func compressed(
-        compressorPool: PoolAllocator<ZlibCompressorAllocator>,
+    func compressed<Allocator: ZlibAllocator<ZlibCompressor>>(
+        compressorPool: Allocator,
         windowSize: Int,
         logger: Logger
     ) throws -> some ResponseBodyWriter {
         try CompressedBodyWriter(parent: self, allocator: compressorPool, windowSize: windowSize, logger: logger)
+    }
+
+    ///  Return ``HummingbirdCore/ResponseBodyWriter`` that compresses the contents of this ResponseBodyWriter
+    /// - Parameters:
+    ///   - algorithm: Compression algorithm
+    ///   - configuration: Zlib configuration
+    ///   - windowSize: Window size (in bytes) to use when compressing data
+    ///   - logger: Logger used to output compression errors
+    /// - Returns: new ``HummingbirdCore/ResponseBodyWriter``
+    public func compressed(
+        algorithm: ZlibAlgorithm,
+        configuration: ZlibConfiguration,
+        windowSize: Int,
+        logger: Logger
+    ) throws -> some ResponseBodyWriter {
+        try compressed(
+            compressorPool: ZlibCompressorAllocator(algorithm: algorithm, configuration: configuration),
+            windowSize: windowSize,
+            logger: logger
+        )
     }
 }
 
