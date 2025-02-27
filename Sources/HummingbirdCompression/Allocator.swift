@@ -16,13 +16,19 @@ import NIOConcurrencyHelpers
 protocol ZlibAllocator<Value> {
     associatedtype Value
     func allocate() throws -> Value
-    func free(_ compressor: inout Value?) throws
+    func free(_ compressor: inout Value?)
 }
 
+/// Type that can be used with the PoolAllocator
 protocol PoolReusable {
     func reset() throws
 }
 
+/// Allocator that keeps a pool of values around to be re-used.
+///
+/// It will use a value from the pool if it isnt empty. Otherwise it will
+/// allocate a new value. When values are freed they are passed back to the pool
+/// up until the point where the pool grows to its maximum size.
 struct PoolAllocator<BaseAllocator: ZlibAllocator>: ZlibAllocator where BaseAllocator.Value: PoolReusable {
     typealias Value = BaseAllocator.Value
     @usableFromInline
@@ -45,20 +51,20 @@ struct PoolAllocator<BaseAllocator: ZlibAllocator>: ZlibAllocator where BaseAllo
             $0.popLast()
         }
         if let value {
+            try value.reset()
             return value
         }
         return try base.allocate()
     }
 
     @inlinable
-    func free(_ value: inout Value?) throws {
+    func free(_ value: inout Value?) {
         guard let nonOptionalValue = value else { preconditionFailure("Cannot ball free twice on a compressor") }
-        try self.values.withLockedValue {
+        self.values.withLockedValue {
             if $0.count < poolSize {
-                try nonOptionalValue.reset()
                 $0.append(nonOptionalValue)
             }
         }
-        try base.free(&value)
+        base.free(&value)
     }
 }

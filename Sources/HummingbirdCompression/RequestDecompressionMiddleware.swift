@@ -21,22 +21,41 @@ import Logging
 /// if the content-encoding header is set to gzip or deflate then the middleware will attempt
 /// to decompress the contents of the request body and pass that down the middleware chain.
 public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMiddleware {
-    /// decompression window size
+    /// Decompression window size. This is not the internal zlib window
     let windowSize: Int
+    /// Pool of gzip decompressors
+    let gzipDecompressorPool: PoolAllocator<ZlibDecompressorAllocator>
+    /// Pool of deflate compressors
+    let deflateDecompressorPool: PoolAllocator<ZlibDecompressorAllocator>
+
+    /// Initialize RequestDecompressionMiddleware
+    /// - Parameters
+    ///    - windowSize: Decompression window size
+    ///    - gzipDecompressorPoolSize: Maximum size of the gzip decompressor pool
+    ///    - deflateDecompressorPoolSize: Maximum size of the deflate decompressor pool
+    public init(
+        windowSize: Int = 32768,
+        gzipDecompressorPoolSize: Int,
+        deflateDecompressorPoolSize: Int
+    ) {
+        self.windowSize = windowSize
+        self.gzipDecompressorPool = .init(size: gzipDecompressorPoolSize, base: .init(algorithm: .gzip, windowSize: 15))
+        self.deflateDecompressorPool = .init(size: deflateDecompressorPoolSize, base: .init(algorithm: .zlib, windowSize: 15))
+    }
 
     /// Initialize RequestDecompressionMiddleware
     /// - Parameter windowSize: Decompression window size
     public init(windowSize: Int = 32768) {
-        self.windowSize = windowSize
+        self.init(windowSize: windowSize, gzipDecompressorPoolSize: 16, deflateDecompressorPoolSize: 16)
     }
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
-        if let algorithm = algorithm(from: request.headers[values: .contentEncoding]) {
+        if let pool = algorithm(from: request.headers[values: .contentEncoding]) {
             var request = request
             request.body = .init(
                 asyncSequence: DecompressByteBufferSequence(
                     base: request.body,
-                    algorithm: algorithm,
+                    allocator: pool,
                     windowSize: self.windowSize,
                     logger: context.logger
                 )
@@ -49,13 +68,13 @@ public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMid
     }
 
     /// Determines the decompression algorithm based off content encoding header.
-    private func algorithm(from contentEncodingHeaders: [String]) -> ZlibAlgorithm? {
+    private func algorithm(from contentEncodingHeaders: [String]) -> PoolAllocator<ZlibDecompressorAllocator>? {
         for encoding in contentEncodingHeaders {
             switch encoding {
             case "gzip":
-                return .gzip
+                return self.gzipDecompressorPool
             case "deflate":
-                return .zlib
+                return self.deflateDecompressorPool
             default:
                 break
             }
@@ -65,44 +84,45 @@ public struct RequestDecompressionMiddleware<Context: RequestContext>: RouterMid
 }
 
 /// AsyncSequence of decompressed ByteBuffers
-struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequence, Sendable where Base.Element == ByteBuffer {
+struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable, Allocator: ZlibAllocator>: AsyncSequence, Sendable
+where Base.Element == ByteBuffer, Allocator.Value == ZlibDecompressor, Allocator: Sendable {
     typealias Element = ByteBuffer
 
     let base: Base
-    let algorithm: ZlibAlgorithm
+    let allocator: Allocator
     let windowSize: Int
     let logger: Logger
 
-    init(base: Base, algorithm: ZlibAlgorithm, windowSize: Int, logger: Logger) {
+    init(base: Base, allocator: Allocator, windowSize: Int, logger: Logger) {
         self.base = base
-        self.algorithm = algorithm
+        self.allocator = allocator
         self.windowSize = windowSize
         self.logger = logger
     }
 
-    struct AsyncIterator: AsyncIteratorProtocol {
+    class AsyncIterator: AsyncIteratorProtocol {
         enum State {
-            case uninitialized(ZlibAlgorithm, windowSize: Int)
-            case decompressing(ZlibDecompressor, buffer: ByteBuffer, window: ByteBuffer)
+            case uninitialized(Allocator, windowSize: Int)
+            case decompressing(DecompressorWrapper, buffer: ByteBuffer, window: ByteBuffer)
             case done
         }
 
         var baseIterator: Base.AsyncIterator
         var state: State
 
-        init(baseIterator: Base.AsyncIterator, algorithm: ZlibAlgorithm, windowSize: Int) {
+        init(baseIterator: Base.AsyncIterator, allocator: Allocator, windowSize: Int) {
             self.baseIterator = baseIterator
-            self.state = .uninitialized(algorithm, windowSize: windowSize)
+            self.state = .uninitialized(allocator, windowSize: windowSize)
         }
 
-        mutating func next() async throws -> ByteBuffer? {
+        func next() async throws -> ByteBuffer? {
             switch self.state {
-            case .uninitialized(let algorithm, let windowSize):
+            case .uninitialized(let allocator, let windowSize):
                 guard let buffer = try await self.baseIterator.next() else {
                     self.state = .done
                     return nil
                 }
-                let decompressor = try ZlibDecompressor(algorithm: algorithm)
+                let decompressor = try DecompressorWrapper(allocator: allocator)
                 self.state = .decompressing(decompressor, buffer: buffer, window: ByteBufferAllocator().buffer(capacity: windowSize))
                 return try await self.next()
 
@@ -111,7 +131,7 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
                     window.clear()
                     while true {
                         do {
-                            try buffer.decompressStream(to: &window, with: decompressor)
+                            try buffer.decompressStream(to: &window, with: decompressor.wrapped)
                         } catch let error as CompressNIOError where error == .bufferOverflow {
                             self.state = .decompressing(decompressor, buffer: buffer, window: window)
                             return window
@@ -135,9 +155,40 @@ struct DecompressByteBufferSequence<Base: AsyncSequence & Sendable>: AsyncSequen
                 return nil
             }
         }
+
+        /// Wrapper for decompressor that uses allocator to manage its lifecycle
+        class DecompressorWrapper {
+            let wrapped: ZlibDecompressor
+            let allocator: Allocator
+
+            init(allocator: Allocator) throws {
+                self.allocator = allocator
+                self.wrapped = try allocator.allocate()
+            }
+
+            deinit {
+                var optionalValue: ZlibDecompressor? = self.wrapped
+                self.allocator.free(&optionalValue)
+            }
+        }
     }
 
     func makeAsyncIterator() -> AsyncIterator {
-        .init(baseIterator: self.base.makeAsyncIterator(), algorithm: self.algorithm, windowSize: self.windowSize)
+        .init(baseIterator: self.base.makeAsyncIterator(), allocator: self.allocator, windowSize: self.windowSize)
+    }
+}
+
+extension ZlibDecompressor: PoolReusable {}
+struct ZlibDecompressorAllocator: ZlibAllocator, Sendable {
+    typealias Value = ZlibDecompressor
+    let algorithm: ZlibAlgorithm
+    let windowSize: Int32
+
+    func allocate() throws -> ZlibDecompressor {
+        try ZlibDecompressor(algorithm: algorithm, windowSize: self.windowSize)
+    }
+
+    func free(_ decompressor: inout ZlibDecompressor?) {
+        decompressor = nil
     }
 }

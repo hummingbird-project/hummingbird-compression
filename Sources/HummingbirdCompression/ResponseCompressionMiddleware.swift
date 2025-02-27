@@ -37,11 +37,15 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     /// - Parameters:
     ///   - windowSize: Compression window size
     ///   - minimumResponseSizeToCompress: Minimum size of response before applying compression
+    ///   - gzipCompressorPoolSize: Maximum size of gzip compressor pool
+    ///   - deflateCompressorPoolSize: Maximum size of deflate compressor pool
     ///   - zlibCompressionLevel: zlib compression level.
     ///   - zlibMemoryLevel: Amount of memory to allocated for compression state.
     public init(
         windowSize: Int = 32768,
         minimumResponseSizeToCompress: Int = 1024,
+        gzipCompressorPoolSize: Int = 16,
+        deflateCompressorPoolSize: Int = 16,
         zlibCompressionLevel: ZlibConfiguration.CompressionLevel = .defaultCompressionLevel,
         zlibMemoryLevel: ZlibConfiguration.MemoryLevel = .defaultMemoryLevel
     ) {
@@ -51,9 +55,31 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
             compressionLevel: zlibCompressionLevel,
             memoryLevel: zlibMemoryLevel
         )
-        self.gzipCompressorPool = .init(size: 16, base: .init(algorithm: .gzip, configuration: self.zlibConfiguration))
+        self.gzipCompressorPool = .init(size: gzipCompressorPoolSize, base: .init(algorithm: .gzip, configuration: self.zlibConfiguration))
         // HTTP deflate is actually zlib compression
-        self.deflateCompressorPool = .init(size: 16, base: .init(algorithm: .zlib, configuration: self.zlibConfiguration))
+        self.deflateCompressorPool = .init(size: deflateCompressorPoolSize, base: .init(algorithm: .zlib, configuration: self.zlibConfiguration))
+    }
+
+    /// Initialize ResponseCompressionMiddleware
+    /// - Parameters:
+    ///   - windowSize: Compression window size
+    ///   - minimumResponseSizeToCompress: Minimum size of response before applying compression
+    ///   - zlibCompressionLevel: zlib compression level.
+    ///   - zlibMemoryLevel: Amount of memory to allocated for compression state.
+    public init(
+        windowSize: Int = 32768,
+        minimumResponseSizeToCompress: Int = 1024,
+        zlibCompressionLevel: ZlibConfiguration.CompressionLevel = .defaultCompressionLevel,
+        zlibMemoryLevel: ZlibConfiguration.MemoryLevel = .defaultMemoryLevel
+    ) {
+        self.init(
+            windowSize: windowSize,
+            minimumResponseSizeToCompress: minimumResponseSizeToCompress,
+            gzipCompressorPoolSize: 16,
+            deflateCompressorPoolSize: 16,
+            zlibCompressionLevel: zlibCompressionLevel,
+            zlibMemoryLevel: zlibMemoryLevel
+        )
     }
 
     public func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {

@@ -72,7 +72,8 @@ where Allocator.Value == ZlibCompressor {
             }
         }
         self.lastBuffer = nil
-        try self.allocator.free(&self.compressor)
+        
+        self.allocator.free(&self.compressor)
         try await self.parentWriter.finish(trailingHeaders)
     }
 }
@@ -103,7 +104,7 @@ struct ZlibCompressorAllocator: ZlibAllocator, Sendable {
         try ZlibCompressor(algorithm: algorithm, configuration: configuration)
     }
 
-    func free(_ compressor: inout ZlibCompressor?) throws {
+    func free(_ compressor: inout ZlibCompressor?) {
         compressor = nil
     }
 }
