@@ -103,7 +103,7 @@ where Base.Element == ByteBuffer, Allocator.Value == ZlibDecompressor, Allocator
     class AsyncIterator: AsyncIteratorProtocol {
         enum State {
             case uninitialized(Allocator, windowSize: Int)
-            case decompressing(DecompressorWrapper, buffer: ByteBuffer, window: ByteBuffer)
+            case decompressing(AllocatedValue<Allocator>, buffer: ByteBuffer, window: ByteBuffer)
             case done
         }
 
@@ -122,7 +122,7 @@ where Base.Element == ByteBuffer, Allocator.Value == ZlibDecompressor, Allocator
                     self.state = .done
                     return nil
                 }
-                let decompressor = try DecompressorWrapper(allocator: allocator)
+                let decompressor = try AllocatedValue(allocator: allocator)
                 self.state = .decompressing(decompressor, buffer: buffer, window: ByteBufferAllocator().buffer(capacity: windowSize))
                 return try await self.next()
 
@@ -131,7 +131,7 @@ where Base.Element == ByteBuffer, Allocator.Value == ZlibDecompressor, Allocator
                     window.clear()
                     while true {
                         do {
-                            try buffer.decompressStream(to: &window, with: decompressor.wrapped)
+                            try buffer.decompressStream(to: &window, with: decompressor.value)
                         } catch let error as CompressNIOError where error == .bufferOverflow {
                             self.state = .decompressing(decompressor, buffer: buffer, window: window)
                             return window
@@ -153,22 +153,6 @@ where Base.Element == ByteBuffer, Allocator.Value == ZlibDecompressor, Allocator
 
             case .done:
                 return nil
-            }
-        }
-
-        /// Wrapper for decompressor that uses allocator to manage its lifecycle
-        class DecompressorWrapper {
-            let wrapped: ZlibDecompressor
-            let allocator: Allocator
-
-            init(allocator: Allocator) throws {
-                self.allocator = allocator
-                self.wrapped = try allocator.allocate()
-            }
-
-            deinit {
-                var optionalValue: ZlibDecompressor? = self.wrapped
-                self.allocator.free(&optionalValue)
             }
         }
     }

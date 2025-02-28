@@ -21,8 +21,7 @@ import NIOConcurrencyHelpers
 final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable, Allocator: ZlibAllocator>: ResponseBodyWriter
 where Allocator.Value == ZlibCompressor {
     var parentWriter: ParentWriter
-    private var compressor: ZlibCompressor?
-    private var allocator: Allocator
+    private var compressor: AllocatedValue<Allocator>
     private var window: ByteBuffer
     var lastBuffer: ByteBuffer?
     let logger: Logger
@@ -34,8 +33,7 @@ where Allocator.Value == ZlibCompressor {
         logger: Logger
     ) throws {
         self.parentWriter = parent
-        self.allocator = allocator
-        self.compressor = try allocator.allocate()
+        self.compressor = try .init(allocator: allocator)
         self.window = ByteBufferAllocator().buffer(capacity: windowSize)
         self.lastBuffer = nil
         self.logger = logger
@@ -43,9 +41,8 @@ where Allocator.Value == ZlibCompressor {
 
     /// Write response buffer
     func write(_ buffer: ByteBuffer) async throws {
-        guard let compressor else { preconditionFailure("Cannot call write after finish") }
         var buffer = buffer
-        try await buffer.compressStream(with: compressor, window: &self.window, flush: .sync) { buffer in
+        try await buffer.compressStream(with: compressor.value, window: &self.window, flush: .sync) { buffer in
             try await self.parentWriter.write(buffer)
         }
         // need to store the last buffer so it can be finished once the writer is done
@@ -57,11 +54,10 @@ where Allocator.Value == ZlibCompressor {
     consuming func finish(_ trailingHeaders: HTTPFields?) async throws {
         // The last buffer must be finished
         if var lastBuffer {
-            guard let compressor else { preconditionFailure("Cannot call finish twice") }
             // keep finishing stream until we don't get a buffer overflow
             while true {
                 do {
-                    try lastBuffer.compressStream(to: &self.window, with: compressor, flush: .finish)
+                    try lastBuffer.compressStream(to: &self.window, with: compressor.value, flush: .finish)
                     try await self.parentWriter.write(self.window)
                     self.window.clear()
                     break
@@ -72,8 +68,6 @@ where Allocator.Value == ZlibCompressor {
             }
         }
         self.lastBuffer = nil
-
-        self.allocator.free(&self.compressor)
         try await self.parentWriter.finish(trailingHeaders)
     }
 }

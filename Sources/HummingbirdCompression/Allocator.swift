@@ -19,6 +19,22 @@ protocol ZlibAllocator<Value> {
     func free(_ compressor: inout Value?)
 }
 
+/// Wrapper for value that uses allocator to manage its lifecycle
+class AllocatedValue<Allocator: ZlibAllocator> {
+    let value: Allocator.Value
+    let allocator: Allocator
+
+    init(allocator: Allocator) throws {
+        self.allocator = allocator
+        self.value = try allocator.allocate()
+    }
+
+    deinit {
+        var optionalValue: Allocator.Value? = self.value
+        self.allocator.free(&optionalValue)
+    }
+}
+
 /// Type that can be used with the PoolAllocator
 protocol PoolReusable {
     func reset() throws
