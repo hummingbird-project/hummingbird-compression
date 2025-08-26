@@ -72,7 +72,7 @@ class HummingBirdCompressionTests: XCTestCase {
 
     func testMultipleCompressResponse() async throws {
         let router = Router()
-        router.middlewares.add(ResponseCompressionMiddleware(windowSize: 65536))
+        router.middlewares.add(ResponseCompressionMiddleware(windowSize: 32768))
         router.post("/echo") { request, _ -> Response in
             let body = try await request.body.collect(upTo: .max)
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
@@ -81,7 +81,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let buffer = self.randomBuffer(size: 512_000)
         try await app.test(.router) { client in
             try await withThrowingTaskGroup(of: Void.self) { group in
-                for _ in 0..<1024 {
+                for _ in 0..<4096 {
                     if Bool.random() == true {
                         group.addTask {
                             try await app.test(.router) { client in
@@ -117,6 +117,7 @@ class HummingBirdCompressionTests: XCTestCase {
                 try await group.waitForAll()
             }
         }
+        print("Done.")
     }
 
     func testCompressMinimumResponseSize() async throws {
@@ -258,7 +259,7 @@ class HummingBirdCompressionTests: XCTestCase {
         let buffer = self.randomBuffer(size: 512_000)
         try await app.test(.router) { client in
             try await withThrowingTaskGroup(of: Void.self) { group in
-                for _ in 0..<16 {
+                for _ in 0..<2048 {
                     group.addTask {
                         let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))!
                         let compressedBuffer = try compress(testBuffer)
