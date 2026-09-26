@@ -10,9 +10,9 @@ import CompressNIO
 import Hummingbird
 import HummingbirdCompression
 import HummingbirdTesting
-import XCTest
+import Testing
 
-class HummingBirdCompressionTests: XCTestCase {
+struct HummingBirdCompressionTests {
     struct Error: Swift.Error {}
 
     func randomBuffer(size: Int) -> ByteBuffer {
@@ -21,6 +21,7 @@ class HummingBirdCompressionTests: XCTestCase {
         return ByteBufferAllocator().buffer(bytes: data)
     }
 
+    @Test
     func testCompressResponse() async throws {
         let router = Router()
         router.middlewares.add(ResponseCompressionMiddleware())
@@ -31,15 +32,16 @@ class HummingBirdCompressionTests: XCTestCase {
         try await app.test(.router) { client in
             let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
             try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
-                XCTAssertEqual(response.headers[.contentEncoding], "gzip")
-                XCTAssertEqual(response.headers[.transferEncoding], "chunked")
+                #expect(response.headers[.contentEncoding] == "gzip")
+                #expect(response.headers[.transferEncoding] == "chunked")
                 var body = response.body
                 let uncompressed = try body.decompress(with: .gzip())
-                XCTAssertEqual(uncompressed, testBuffer)
+                #expect(uncompressed == testBuffer)
             }
         }
     }
 
+    @Test
     func testCompressDoubleResponse() async throws {
         let router = Router()
         router.middlewares.add(ResponseCompressionMiddleware())
@@ -53,17 +55,18 @@ class HummingBirdCompressionTests: XCTestCase {
             try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
                 var body = response.body
                 let uncompressed = try body.decompress(with: .gzip())
-                XCTAssertEqual(uncompressed, testBuffer)
+                #expect(uncompressed == testBuffer)
             }
             let testBuffer2 = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))
             try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer2) { response in
                 var body = response.body
                 let uncompressed = try body.decompress(with: .gzip())
-                XCTAssertEqual(uncompressed, testBuffer2)
+                #expect(uncompressed == testBuffer2)
             }
         }
     }
 
+    @Test
     func testMultipleCompressResponse() async throws {
         let router = Router()
         router.middlewares.add(ResponseCompressionMiddleware(windowSize: 65536))
@@ -93,7 +96,7 @@ class HummingBirdCompressionTests: XCTestCase {
                                     } else {
                                         uncompressed = body
                                     }
-                                    XCTAssertEqual(uncompressed, testBuffer)
+                                    #expect(uncompressed == testBuffer)
                                 }
                             }
                         }
@@ -102,7 +105,7 @@ class HummingBirdCompressionTests: XCTestCase {
                             try await app.test(.router) { client in
                                 let testBuffer = buffer.getSlice(at: Int.random(in: 0...256_000), length: Int.random(in: 0...256_000))
                                 try await client.execute(uri: "/echo", method: .post, body: testBuffer) { response in
-                                    XCTAssertEqual(response.body, testBuffer)
+                                    #expect(response.body == testBuffer)
                                 }
                             }
                         }
@@ -113,6 +116,7 @@ class HummingBirdCompressionTests: XCTestCase {
         }
     }
 
+    @Test
     func testCompressMinimumResponseSize() async throws {
         let router = Router()
         router.middlewares.add(ResponseCompressionMiddleware(minimumResponseSizeToCompress: 1024))
@@ -124,12 +128,13 @@ class HummingBirdCompressionTests: XCTestCase {
         try await app.test(.router) { client in
             let testBuffer = self.randomBuffer(size: 512)
             try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
-                XCTAssertNotEqual(response.headers[.contentEncoding], "gzip")
-                XCTAssertEqual(response.body, testBuffer)
+                #expect(response.headers[.contentEncoding] != "gzip")
+                #expect(response.body == testBuffer)
             }
         }
     }
 
+    @Test
     func testCompressWindowSize() async throws {
         struct VerifyResponseBodyChunkSize<Context: RequestContext>: RouterMiddleware {
             let bufferSize: Int
@@ -139,7 +144,7 @@ class HummingBirdCompressionTests: XCTestCase {
                 let bufferSize: Int
 
                 mutating func write(_ buffer: ByteBuffer) async throws {
-                    XCTAssertLessThanOrEqual(buffer.capacity, self.bufferSize)
+                    #expect(buffer.capacity <= self.bufferSize)
                     try await self.parentWriter.write(buffer)
                 }
 
@@ -167,15 +172,16 @@ class HummingBirdCompressionTests: XCTestCase {
         try await app.test(.router) { client in
             let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
             try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
-                XCTAssertEqual(response.headers[.contentEncoding], "gzip")
-                XCTAssertEqual(response.headers[.transferEncoding], "chunked")
+                #expect(response.headers[.contentEncoding] == "gzip")
+                #expect(response.headers[.transferEncoding] == "chunked")
                 var body = response.body
                 let uncompressed = try body.decompress(with: .gzip())
-                XCTAssertEqual(uncompressed, testBuffer)
+                #expect(uncompressed == testBuffer)
             }
         }
     }
 
+    @Test
     func testDecompressRequest() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())
@@ -189,11 +195,12 @@ class HummingBirdCompressionTests: XCTestCase {
             var testBufferCopy = testBuffer
             let compressedBuffer = try testBufferCopy.compress(with: .gzip())
             try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer) { response in
-                XCTAssertEqual(response.body, testBuffer)
+                #expect(response.body == testBuffer)
             }
         }
     }
 
+    @Test
     func testDecompressRequestStream() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())
@@ -206,11 +213,12 @@ class HummingBirdCompressionTests: XCTestCase {
             var testBufferCopy = testBuffer
             let compressedBuffer = try testBufferCopy.compress(with: .zlib())
             try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "deflate"], body: compressedBuffer) { response in
-                XCTAssertEqual(response.body, testBuffer)
+                #expect(response.body == testBuffer)
             }
         }
     }
 
+    @Test
     func testDoubleDecompressRequests() async throws {
         @Sendable func compress(_ buffer: ByteBuffer) throws -> ByteBuffer {
             var b = buffer
@@ -229,14 +237,15 @@ class HummingBirdCompressionTests: XCTestCase {
             let compressedBuffer1 = try compress(buffer1)
             let compressedBuffer2 = try compress(buffer2)
             try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer1) { response in
-                XCTAssertEqual(response.body, buffer1)
+                #expect(response.body == buffer1)
             }
             try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer2) { response in
-                XCTAssertEqual(response.body, buffer2)
+                #expect(response.body == buffer2)
             }
         }
     }
 
+    @Test
     func testMultipleDecompressRequests() async throws {
         @Sendable func compress(_ buffer: ByteBuffer) throws -> ByteBuffer {
             var b = buffer
@@ -262,7 +271,7 @@ class HummingBirdCompressionTests: XCTestCase {
                             headers: [.contentEncoding: "gzip"],
                             body: compressedBuffer
                         ) { response in
-                            XCTAssertEqual(response.body, testBuffer)
+                            #expect(response.body == testBuffer)
                         }
                     }
                 }
@@ -271,6 +280,7 @@ class HummingBirdCompressionTests: XCTestCase {
         }
     }
 
+    @Test
     func testNoCompression() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())
@@ -282,11 +292,12 @@ class HummingBirdCompressionTests: XCTestCase {
         try await app.test(.router) { client in
             let testBuffer = self.randomBuffer(size: 261_335)
             try await client.execute(uri: "/echo", method: .post, body: testBuffer) { response in
-                XCTAssertEqual(response.body, testBuffer)
+                #expect(response.body == testBuffer)
             }
         }
     }
 
+    @Test
     func testBadData() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())
@@ -298,11 +309,12 @@ class HummingBirdCompressionTests: XCTestCase {
         try await app.test(.router) { client in
             let testBuffer = self.randomBuffer(size: 261_335)
             try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: testBuffer) { response in
-                XCTAssertEqual(response.status, .badRequest)
+                #expect(response.status == .badRequest)
             }
         }
     }
 
+    @Test
     func testBadData2() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())
@@ -316,11 +328,12 @@ class HummingBirdCompressionTests: XCTestCase {
             var compressedBuffer = try testBuffer.compress(with: .gzip())
             compressedBuffer.setBytes([UInt8(80)], at: compressedBuffer.writerIndex - 1)
             try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer) { response in
-                XCTAssertEqual(response.status, .badRequest)
+                #expect(response.status == .badRequest)
             }
         }
     }
 
+    @Test
     func testWrongContentEncoding() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())
@@ -333,11 +346,12 @@ class HummingBirdCompressionTests: XCTestCase {
             var testBuffer = self.randomBuffer(size: 261_335)
             let compressedBuffer = try testBuffer.compress(with: .gzip())
             try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "deflate"], body: compressedBuffer) { response in
-                XCTAssertEqual(response.status, .badRequest)
+                #expect(response.status == .badRequest)
             }
         }
     }
 
+    @Test
     func testDecompressRequestCompressResponse() async throws {
         @Sendable func compress(_ buffer: ByteBuffer) throws -> ByteBuffer {
             var b = buffer
@@ -350,7 +364,7 @@ class HummingBirdCompressionTests: XCTestCase {
         router.middlewares.add(ResponseCompressionMiddleware())
         router.post("/echo") { request, _ -> Response in
             let body = try await request.body.collect(upTo: .max)
-            XCTAssertEqual(testBuffer, body)
+            #expect(testBuffer == body)
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: body))
         }
         let app = Application(router: router)
@@ -363,11 +377,12 @@ class HummingBirdCompressionTests: XCTestCase {
             ) { response in
                 var body = response.body
                 let uncompressed = try body.decompress(with: .zlib())
-                XCTAssertEqual(uncompressed, testBuffer)
+                #expect(uncompressed == testBuffer)
             }
         }
     }
 
+    @Test
     func testDecompressVerifyWindowSize() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware(windowSize: 64))
@@ -375,7 +390,7 @@ class HummingBirdCompressionTests: XCTestCase {
             var output = ByteBuffer()
             for try await chunk in request.body {
                 var chunk = chunk
-                XCTAssertLessThanOrEqual(chunk.capacity, 64)
+                #expect(chunk.capacity <= 64)
                 output.writeBuffer(&chunk)
             }
             return .init(status: .ok, headers: [:], body: .init(byteBuffer: output))
@@ -386,7 +401,7 @@ class HummingBirdCompressionTests: XCTestCase {
             var testBufferCopy = testBuffer
             let compressedBuffer = try testBufferCopy.compress(with: .gzip())
             try await client.execute(uri: "/echo", method: .post, headers: [.contentEncoding: "gzip"], body: compressedBuffer) { response in
-                XCTAssertEqual(response.body, testBuffer)
+                #expect(response.body == testBuffer)
             }
         }
     }

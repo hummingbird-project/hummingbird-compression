@@ -11,7 +11,7 @@ import Hummingbird
 import Logging
 
 // ResponseBodyWriter that writes a compressed version of the response to a parent writer
-final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter & Sendable>: ResponseBodyWriter {
+final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter>: ResponseBodyWriter {
     var parentWriter: ParentWriter
     private let compressor: ZlibCompressor
     private var window: ByteBuffer
