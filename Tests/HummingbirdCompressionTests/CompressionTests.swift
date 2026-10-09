@@ -182,6 +182,25 @@ struct HummingBirdCompressionTests {
     }
 
     @Test
+    func testCompressZlibWindowSize() async throws {
+        let router = Router()
+        router.middlewares.add(ResponseCompressionMiddleware(zlibMemoryLevel: .memory4K, zlibWindowSize: .window2k))
+        router.post("/echo") { request, _ -> Response in
+            .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
+        }
+        let app = Application(router: router)
+        try await app.test(.router) { client in
+            let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
+            try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
+                #expect(response.headers[.contentEncoding] == "gzip")
+                var body = response.body
+                let uncompressed = try body.decompress(with: .gzip())
+                #expect(uncompressed == testBuffer)
+            }
+        }
+    }
+
+    @Test
     func testDecompressRequest() async throws {
         let router = Router()
         router.middlewares.add(RequestDecompressionMiddleware())

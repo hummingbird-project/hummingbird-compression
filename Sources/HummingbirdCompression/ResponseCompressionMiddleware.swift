@@ -29,15 +29,20 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     ///   - minimumResponseSizeToCompress: Minimum size of response before applying compression
     ///   - zlibCompressionLevel: zlib compression level.
     ///   - zlibMemoryLevel: Amount of memory to allocated for compression state.
+    ///   - zlibWindowSize: Size of zlib's history window. A stream of small chunks, like
+    ///     server-sent events, compresses about as well with a small window and keeps far
+    ///     less memory per response.
     public init(
         windowSize: Int = 32768,
         minimumResponseSizeToCompress: Int = 1024,
         zlibCompressionLevel: ZlibConfiguration.CompressionLevel = .defaultCompressionLevel,
-        zlibMemoryLevel: ZlibConfiguration.MemoryLevel = .defaultMemoryLevel
+        zlibMemoryLevel: ZlibConfiguration.MemoryLevel = .defaultMemoryLevel,
+        zlibWindowSize: ZlibConfiguration.WindowSize = .defaultWindowSize
     ) {
         self.windowSize = windowSize
         self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
         self.zlibConfiguration = .init(
+            windowSize: zlibWindowSize,
             compressionLevel: zlibCompressionLevel,
             memoryLevel: zlibMemoryLevel
         )
