@@ -58,7 +58,8 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         var editedResponse = response
         editedResponse.headers[values: .contentEncoding].append(name)
         editedResponse.headers[.contentLength] = nil
-        editedResponse.headers[.transferEncoding] = "chunked"
+        // No Transfer-Encoding: HTTP/1.1 sends a body without a content length as chunked
+        // anyway, and HTTP/2 forbids the header.
         editedResponse.body = .init { writer in
             let compressWriter = try writer.compressed(
                 algorithm: algorithm,
