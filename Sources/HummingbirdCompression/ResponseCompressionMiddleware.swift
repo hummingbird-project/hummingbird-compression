@@ -10,18 +10,47 @@ import CompressNIO
 import Hummingbird
 import Logging
 
+/// Configuration for ``ResponseCompressionMiddleware``
+public struct ResponseCompressionMiddlewareConfiguration: Sendable {
+    /// Compression window size
+    public var windowSize: Int
+    /// Minimum size of response before applying compression
+    public var minimumResponseSizeToCompress: Int
+    /// Zlib configuration
+    public var zlibConfiguration: ZlibConfiguration
+
+    /// Initialize ResponseCompressionMiddlewareConfiguration
+    /// - Parameters:
+    ///   - windowSize: Compression window size
+    ///   - minimumResponseSizeToCompress: Minimum size of response before applying compression
+    ///   - zlibConfiguration: zlib compression level, memory level and window size. A stream
+    ///     of small chunks, like server-sent events, compresses about as well with a small
+    ///     zlib window and keeps far less memory per response.
+    public init(
+        windowSize: Int = 32768,
+        minimumResponseSizeToCompress: Int = 1024,
+        zlibConfiguration: ZlibConfiguration = .init()
+    ) {
+        self.windowSize = windowSize
+        self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
+        self.zlibConfiguration = zlibConfiguration
+    }
+}
+
 /// Middleware for compressing response bodies
 ///
 /// If the accept-encoding header in request is set to gzip or deflate and the response body
 /// is of at least a minimum size then the middleware will return a response with a compressed
 /// version of the response body that it received.
 public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMiddleware {
-    /// compression window size
-    let windowSize: Int
-    /// minimum size of response body to compress
-    let minimumResponseSizeToCompress: Int
-    /// Zlib configuration
-    let zlibConfiguration: ZlibConfiguration
+    /// Middleware configuration
+    let configuration: ResponseCompressionMiddlewareConfiguration
+
+    /// Initialize ResponseCompressionMiddleware
+    /// - Parameter configuration: Middleware configuration
+    public init(configuration: ResponseCompressionMiddlewareConfiguration) {
+        self.configuration = configuration
+    }
 
     /// Initialize ResponseCompressionMiddleware
     /// - Parameters:
@@ -29,22 +58,18 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
     ///   - minimumResponseSizeToCompress: Minimum size of response before applying compression
     ///   - zlibCompressionLevel: zlib compression level.
     ///   - zlibMemoryLevel: Amount of memory to allocated for compression state.
-    ///   - zlibWindowSize: Size of zlib's history window. A stream of small chunks, like
-    ///     server-sent events, compresses about as well with a small window and keeps far
-    ///     less memory per response.
     public init(
         windowSize: Int = 32768,
         minimumResponseSizeToCompress: Int = 1024,
         zlibCompressionLevel: ZlibConfiguration.CompressionLevel = .defaultCompressionLevel,
-        zlibMemoryLevel: ZlibConfiguration.MemoryLevel = .defaultMemoryLevel,
-        zlibWindowSize: ZlibConfiguration.WindowSize = .defaultWindowSize
+        zlibMemoryLevel: ZlibConfiguration.MemoryLevel = .defaultMemoryLevel
     ) {
-        self.windowSize = windowSize
-        self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
-        self.zlibConfiguration = .init(
-            windowSize: zlibWindowSize,
-            compressionLevel: zlibCompressionLevel,
-            memoryLevel: zlibMemoryLevel
+        self.init(
+            configuration: .init(
+                windowSize: windowSize,
+                minimumResponseSizeToCompress: minimumResponseSizeToCompress,
+                zlibConfiguration: .init(compressionLevel: zlibCompressionLevel, memoryLevel: zlibMemoryLevel)
+            )
         )
     }
 
@@ -53,7 +78,7 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         // if content length is less than the minimum content length require before compression is applied then
         // just return the response now
         if let contentLength = response.body.contentLength {
-            guard contentLength > self.minimumResponseSizeToCompress else {
+            guard contentLength > self.configuration.minimumResponseSizeToCompress else {
                 return response
             }
         }
@@ -67,8 +92,8 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
         editedResponse.body = .init { writer in
             let compressWriter = try writer.compressed(
                 algorithm: algorithm,
-                configuration: self.zlibConfiguration,
-                windowSize: self.windowSize,
+                configuration: self.configuration.zlibConfiguration,
+                windowSize: self.configuration.windowSize,
                 logger: context.logger
             )
             try await response.body.write(compressWriter)

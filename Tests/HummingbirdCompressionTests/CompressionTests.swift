@@ -184,7 +184,11 @@ struct HummingBirdCompressionTests {
     @Test
     func testCompressZlibWindowSize() async throws {
         let router = Router()
-        router.middlewares.add(ResponseCompressionMiddleware(zlibMemoryLevel: .memory4K, zlibWindowSize: .window2k))
+        router.middlewares.add(
+            ResponseCompressionMiddleware(
+                configuration: .init(zlibConfiguration: .init(windowSize: .window2k, memoryLevel: .memory4K))
+            )
+        )
         router.post("/echo") { request, _ -> Response in
             .init(status: .ok, headers: [:], body: .init(asyncSequence: request.body))
         }
