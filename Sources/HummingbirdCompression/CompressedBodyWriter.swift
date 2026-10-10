@@ -38,8 +38,9 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter>: ResponseBody
         try await buffer.compressStream(with: self.compressor, window: &self.window, flush: .sync) { buffer in
             try await self.parentWriter.write(buffer)
         }
-        // need to store the last buffer so it can be finished once the writer is done
-        self.lastBuffer = buffer
+        // compressStream has consumed every byte of the buffer. Keep an empty buffer to finish
+        // the stream with: keeping this one would hold its storage until the response ends.
+        self.lastBuffer = ByteBuffer()
     }
 
     /// Finish writing body

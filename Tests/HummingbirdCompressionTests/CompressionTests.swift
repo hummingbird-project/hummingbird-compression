@@ -8,9 +8,11 @@
 
 import CompressNIO
 import Hummingbird
-import HummingbirdCompression
 import HummingbirdTesting
+import Logging
 import Testing
+
+@testable import HummingbirdCompression
 
 struct HummingBirdCompressionTests {
     struct Error: Swift.Error {}
@@ -423,5 +425,24 @@ struct HummingBirdCompressionTests {
                 #expect(response.body == testBuffer)
             }
         }
+    }
+
+    @Test
+    func testCompressedWriterDoesNotKeepWrittenBuffer() async throws {
+        struct DiscardingWriter: ResponseBodyWriter {
+            mutating func write(_ buffer: ByteBuffer) async throws {}
+            func finish(_ trailingHeaders: HTTPFields?) async throws {}
+        }
+        let writer = try CompressedBodyWriter(
+            parent: DiscardingWriter(),
+            algorithm: .gzip,
+            configuration: .init(),
+            windowSize: 32768,
+            logger: Logger(label: "test")
+        )
+        try await writer.write(self.randomBuffer(size: 65536))
+        // Every byte written has been compressed: nothing of the buffer needs to be kept until the response ends
+        #expect((writer.lastBuffer?.capacity ?? 0) == 0)
+        try await writer.finish(nil)
     }
 }
