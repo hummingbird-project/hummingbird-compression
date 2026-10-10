@@ -33,10 +33,29 @@ struct HummingBirdCompressionTests {
             let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
             try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
                 #expect(response.headers[.contentEncoding] == "gzip")
-                #expect(response.headers[.transferEncoding] == "chunked")
+                #expect(response.headers[.transferEncoding] == nil)
                 var body = response.body
                 let uncompressed = try body.decompress(with: .gzip())
                 #expect(uncompressed == testBuffer)
+            }
+        }
+    }
+
+    @Test
+    func testCompressedResponseIsChunkedOverHTTP1() async throws {
+        let text = String(repeating: "Hello, Hummingbird. ", count: 1000)
+        let router = Router()
+        router.middlewares.add(ResponseCompressionMiddleware())
+        router.get("/text") { _, _ in text }
+        let app = Application(router: router)
+        try await app.test(.live) { client in
+            try await client.execute(uri: "/text", method: .get, headers: [.acceptEncoding: "gzip"]) { response in
+                #expect(response.headers[.contentEncoding] == "gzip")
+                // HTTP/1.1 frames a body of unknown length as chunked without the middleware asking
+                #expect(response.headers[.transferEncoding] == "chunked")
+                var body = response.body
+                let uncompressed = try body.decompress(with: .gzip())
+                #expect(String(buffer: uncompressed) == text)
             }
         }
     }
@@ -173,7 +192,7 @@ struct HummingBirdCompressionTests {
             let testBuffer = self.randomBuffer(size: Int.random(in: 64000...261_335))
             try await client.execute(uri: "/echo", method: .post, headers: [.acceptEncoding: "gzip"], body: testBuffer) { response in
                 #expect(response.headers[.contentEncoding] == "gzip")
-                #expect(response.headers[.transferEncoding] == "chunked")
+                #expect(response.headers[.transferEncoding] == nil)
                 var body = response.body
                 let uncompressed = try body.decompress(with: .gzip())
                 #expect(uncompressed == testBuffer)
