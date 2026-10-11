@@ -30,15 +30,18 @@ public struct ResponseCompressionMiddlewareConfiguration: Sendable {
     ///   - zlibConfiguration: zlib compression level, memory level and window size. A stream
     ///     of small chunks, like server-sent events, compresses about as well with a small
     ///     zlib window and keeps far less memory per response.
+    ///   - flushAfterEachWrite: Send the compressed output of each write straight away. A
+    ///     `text/event-stream` response is always sent straight away.
     public init(
         windowSize: Int = 32768,
         minimumResponseSizeToCompress: Int = 1024,
-        zlibConfiguration: ZlibConfiguration = .init()
+        zlibConfiguration: ZlibConfiguration = .init(),
+        flushAfterEachWrite: Bool = false
     ) {
         self.windowSize = windowSize
         self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
         self.zlibConfiguration = zlibConfiguration
-        self.flushAfterEachWrite = false
+        self.flushAfterEachWrite = flushAfterEachWrite
     }
 }
 

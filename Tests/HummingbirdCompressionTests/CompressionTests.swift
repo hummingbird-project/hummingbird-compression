@@ -534,8 +534,7 @@ struct HummingBirdCompressionTests {
     @Test
     func testFlushForResponse() {
         func flush(contentType: String?, flushAfterEachWrite: Bool = false) -> CompressNIOFlush {
-            var configuration = ResponseCompressionMiddlewareConfiguration()
-            configuration.flushAfterEachWrite = flushAfterEachWrite
+            let configuration = ResponseCompressionMiddlewareConfiguration(flushAfterEachWrite: flushAfterEachWrite)
             var headers = HTTPFields()
             headers[.contentType] = contentType
             let response = Response(status: .ok, headers: headers)
