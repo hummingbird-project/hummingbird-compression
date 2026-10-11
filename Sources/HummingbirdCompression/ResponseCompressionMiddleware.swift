@@ -18,6 +18,10 @@ public struct ResponseCompressionMiddlewareConfiguration: Sendable {
     public var minimumResponseSizeToCompress: Int
     /// Zlib configuration
     public var zlibConfiguration: ZlibConfiguration
+    /// Send the compressed output of each write straight away. When false, compressed output
+    /// is sent whenever the window fills and when the response ends, which makes fewer writes
+    /// for large bodies. A `text/event-stream` response is always sent straight away.
+    public var flushAfterEachWrite: Bool
 
     /// Initialize ResponseCompressionMiddlewareConfiguration
     /// - Parameters:
@@ -34,6 +38,7 @@ public struct ResponseCompressionMiddlewareConfiguration: Sendable {
         self.windowSize = windowSize
         self.minimumResponseSizeToCompress = minimumResponseSizeToCompress
         self.zlibConfiguration = zlibConfiguration
+        self.flushAfterEachWrite = false
     }
 }
 
@@ -95,11 +100,26 @@ public struct ResponseCompressionMiddleware<Context: RequestContext>: RouterMidd
                 algorithm: algorithm,
                 configuration: self.configuration.zlibConfiguration,
                 windowSize: self.configuration.windowSize,
+                flush: self.flush(for: response),
                 logger: context.logger
             )
             try await response.body.write(compressWriter)
         }
         return editedResponse
+    }
+
+    /// How to flush the compressed output of a response. Server-sent events have to reach the
+    /// client as they are written, so an event stream is always sync flushed.
+    func flush(for response: Response) -> CompressNIOFlush {
+        if self.configuration.flushAfterEachWrite {
+            return .sync
+        }
+        if let contentType = response.headers[.contentType], let mediaType = MediaType(from: contentType),
+            mediaType.isType(MediaType(type: .text, subType: "event-stream"))
+        {
+            return .sync
+        }
+        return .no
     }
 
     /// Given a header value, extracts the q value if there is one present. If one is not present,
