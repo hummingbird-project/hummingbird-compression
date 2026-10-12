@@ -8,9 +8,11 @@
 
 import CompressNIO
 import Hummingbird
-import HummingbirdCompression
 import HummingbirdTesting
+import Logging
 import Testing
+
+@testable import HummingbirdCompression
 
 struct HummingBirdCompressionTests {
     struct Error: Swift.Error {}
@@ -446,5 +448,102 @@ struct HummingBirdCompressionTests {
                 #expect(response.body == testBuffer)
             }
         }
+    }
+
+    @Test(arguments: [false, true])
+    func testCompressedWriterDoesNotKeepWrittenBuffer(flushAfterEachWrite: Bool) async throws {
+        struct DiscardingWriter: ResponseBodyWriter {
+            mutating func write(_ buffer: ByteBuffer) async throws {}
+            func finish(_ trailingHeaders: HTTPFields?) async throws {}
+        }
+        let writer = try CompressedBodyWriter(
+            parent: DiscardingWriter(),
+            algorithm: .gzip,
+            configuration: .init(),
+            windowSize: 32768,
+            flush: flushAfterEachWrite ? .sync : .no,
+            logger: Logger(label: "test")
+        )
+        try await writer.write(self.randomBuffer(size: 65536))
+        // Every byte written has been compressed: nothing of the buffer needs to be kept until the response ends
+        #expect((writer.lastBuffer?.capacity ?? 0) == 0)
+        try await writer.finish(nil)
+    }
+
+    final class RecordingWriter: ResponseBodyWriter {
+        var buffers: [ByteBuffer] = []
+        func write(_ buffer: ByteBuffer) async throws {
+            self.buffers.append(buffer)
+        }
+        func finish(_ trailingHeaders: HTTPFields?) async throws {}
+    }
+
+    func events(_ count: Int) -> [ByteBuffer] {
+        (0..<count).map { ByteBuffer(string: "event: update\ndata: \($0)\n\n") }
+    }
+
+    func uncompressed(_ buffers: [ByteBuffer]) throws -> ByteBuffer {
+        var compressed = ByteBuffer()
+        for buffer in buffers {
+            compressed.writeImmutableBuffer(buffer)
+        }
+        return try compressed.decompress(with: .gzip())
+    }
+
+    @Test
+    func testCompressedWriterSendsOutputWhenWindowFills() async throws {
+        let recorder = RecordingWriter()
+        let writer = try CompressedBodyWriter(
+            parent: recorder,
+            algorithm: .gzip,
+            configuration: .init(),
+            windowSize: 32768,
+            flush: .no,
+            logger: Logger(label: "test")
+        )
+        let events = self.events(10)
+        for event in events {
+            try await writer.write(event)
+        }
+        #expect(recorder.buffers.count == 0)
+        try await writer.finish(nil)
+        #expect(recorder.buffers.count == 1)
+        #expect(try self.uncompressed(recorder.buffers) == ByteBuffer(string: events.map { String(buffer: $0) }.joined()))
+    }
+
+    @Test
+    func testCompressedWriterSendsEachWrite() async throws {
+        let recorder = RecordingWriter()
+        let writer = try CompressedBodyWriter(
+            parent: recorder,
+            algorithm: .gzip,
+            configuration: .init(),
+            windowSize: 32768,
+            flush: .sync,
+            logger: Logger(label: "test")
+        )
+        let events = self.events(10)
+        for (index, event) in events.enumerated() {
+            try await writer.write(event)
+            #expect(recorder.buffers.count == index + 1)
+        }
+        try await writer.finish(nil)
+        #expect(try self.uncompressed(recorder.buffers) == ByteBuffer(string: events.map { String(buffer: $0) }.joined()))
+    }
+
+    @Test
+    func testFlushForResponse() {
+        func flush(contentType: String?, flushAfterEachWrite: Bool = false) -> CompressNIOFlush {
+            let configuration = ResponseCompressionMiddlewareConfiguration(flushAfterEachWrite: flushAfterEachWrite)
+            var headers = HTTPFields()
+            headers[.contentType] = contentType
+            let response = Response(status: .ok, headers: headers)
+            return ResponseCompressionMiddleware<BasicRequestContext>(configuration: configuration).flush(for: response)
+        }
+        #expect(flush(contentType: nil) == .no)
+        #expect(flush(contentType: "application/octet-stream") == .no)
+        #expect(flush(contentType: "text/event-stream") == .sync)
+        #expect(flush(contentType: "text/event-stream; charset=utf-8") == .sync)
+        #expect(flush(contentType: "application/octet-stream", flushAfterEachWrite: true) == .sync)
     }
 }

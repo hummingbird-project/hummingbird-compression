@@ -15,6 +15,7 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter>: ResponseBody
     var parentWriter: ParentWriter
     private let compressor: ZlibCompressor
     private var window: ByteBuffer
+    private let flush: CompressNIOFlush
     var lastBuffer: ByteBuffer?
     let logger: Logger
 
@@ -23,11 +24,13 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter>: ResponseBody
         algorithm: ZlibAlgorithm,
         configuration: ZlibConfiguration,
         windowSize: Int,
+        flush: CompressNIOFlush,
         logger: Logger
     ) throws {
         self.parentWriter = parent
         self.compressor = try ZlibCompressor(algorithm: algorithm, configuration: configuration)
         self.window = ByteBufferAllocator().buffer(capacity: windowSize)
+        self.flush = flush
         self.lastBuffer = nil
         self.logger = logger
     }
@@ -35,11 +38,12 @@ final class CompressedBodyWriter<ParentWriter: ResponseBodyWriter>: ResponseBody
     /// Write response buffer
     func write(_ buffer: ByteBuffer) async throws {
         var buffer = buffer
-        try await buffer.compressStream(with: self.compressor, window: &self.window, flush: .sync) { buffer in
+        try await buffer.compressStream(with: self.compressor, window: &self.window, flush: self.flush) { buffer in
             try await self.parentWriter.write(buffer)
         }
-        // need to store the last buffer so it can be finished once the writer is done
-        self.lastBuffer = buffer
+        // compressStream has consumed every byte of the buffer. Keep an empty buffer to finish
+        // the stream with: keeping this one would hold its storage until the response ends.
+        self.lastBuffer = ByteBuffer()
     }
 
     /// Finish writing body
@@ -79,6 +83,23 @@ extension ResponseBodyWriter {
         windowSize: Int,
         logger: Logger
     ) throws -> some ResponseBodyWriter {
-        try CompressedBodyWriter(parent: self, algorithm: algorithm, configuration: configuration, windowSize: windowSize, logger: logger)
+        try self.compressed(algorithm: algorithm, configuration: configuration, windowSize: windowSize, flush: .sync, logger: logger)
+    }
+
+    func compressed(
+        algorithm: ZlibAlgorithm,
+        configuration: ZlibConfiguration,
+        windowSize: Int,
+        flush: CompressNIOFlush,
+        logger: Logger
+    ) throws -> some ResponseBodyWriter {
+        try CompressedBodyWriter(
+            parent: self,
+            algorithm: algorithm,
+            configuration: configuration,
+            windowSize: windowSize,
+            flush: flush,
+            logger: logger
+        )
     }
 }
